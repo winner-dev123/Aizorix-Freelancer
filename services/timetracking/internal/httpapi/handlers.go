@@ -42,9 +42,13 @@ func (a *API) startSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	freelancer := r.Header.Get("X-User-Id")
+	if freelancer == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return
+	}
 	res, err := a.svc.StartSession(r.Context(), req.ContractID, freelancer, req.DeviceID, req.Timezone, time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		mapError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{

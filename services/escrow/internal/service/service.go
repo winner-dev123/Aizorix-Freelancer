@@ -33,7 +33,7 @@ func New(st *store.Store) *Service { return &Service{store: st} }
 // `transactions` ledger would double-credit 'escrow'. We only adjust the held_cents balance
 // here and record a NON-monetary 'escrow_hold' marker on the contract account that moves
 // money between two ledger views WITHOUT crediting the 'escrow' account a second time.
-func (s *Service) FundEscrow(ctx context.Context, contractID string, amountCents int64, currency string) (store.Escrow, error) {
+func (s *Service) FundEscrow(ctx context.Context, contractID string, amountCents int64, currency, idempotencyKey string) (store.Escrow, error) {
 	if amountCents <= 0 {
 		return store.Escrow{}, fmt.Errorf("service: amount_cents must be > 0")
 	}
@@ -53,6 +53,20 @@ func (s *Service) FundEscrow(ctx context.Context, contractID string, amountCents
 	// Lock the row before mutating the balance.
 	if _, err := s.store.LockEscrow(ctx, tx, e.ID); err != nil {
 		return store.Escrow{}, err
+	}
+	// Idempotency: claim the (contract_id, idempotency_key) pair before crediting held_cents.
+	// A replayed key collides, so we roll back the credit and return the existing escrow as a
+	// no-op — a duplicate fund request never inflates held_cents without a real deposit. An
+	// empty key is allowed (legacy callers); only non-empty keys are deduplicated.
+	if idempotencyKey != "" {
+		if err := s.store.RecordFundIdempotency(ctx, tx, contractID, idempotencyKey, e.ID); err != nil {
+			if errors.Is(err, store.ErrDuplicateFund) {
+				// Already funded under this key: return the current escrow without re-crediting.
+				_ = tx.Rollback(ctx)
+				return s.store.GetEscrow(ctx, e.ID)
+			}
+			return store.Escrow{}, err
+		}
 	}
 	e, err = s.store.AddHeld(ctx, tx, e.ID, amountCents)
 	if err != nil {

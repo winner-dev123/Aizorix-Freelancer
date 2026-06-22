@@ -26,6 +26,9 @@ var (
 	// index on (escrow_id, milestone_id) or (escrow_id, billing_week) for non-refunded rows
 	// (migration 000011) — the natural-key idempotency guard.
 	ErrDuplicateAllocation = errors.New("store: duplicate escrow allocation")
+	// ErrDuplicateFund is returned when a fund's (contract_id, idempotency_key) pair was
+	// already used (migration 000013) — the funding idempotency guard.
+	ErrDuplicateFund = errors.New("store: duplicate escrow fund")
 )
 
 // isUniqueViolation reports whether err is a Postgres unique-constraint violation (23505).
@@ -111,6 +114,19 @@ func (s *Store) UpsertEscrowForContract(ctx context.Context, tx pgx.Tx, contract
 // LockEscrow selects the account FOR UPDATE so concurrent balance mutations serialize.
 func (s *Store) LockEscrow(ctx context.Context, tx pgx.Tx, id string) (Escrow, error) {
 	return scanEscrow(tx.QueryRow(ctx, `SELECT `+escrowCols+` FROM escrow_accounts WHERE id=$1 FOR UPDATE`, id))
+}
+
+// RecordFundIdempotency claims an (contract_id, idempotency_key) pair for a fund. A collision
+// with the primary key (the key was already used) maps to ErrDuplicateFund so FundEscrow can
+// return the existing escrow as a no-op instead of crediting held_cents a second time.
+func (s *Store) RecordFundIdempotency(ctx context.Context, tx pgx.Tx, contractID, idempotencyKey, escrowID string) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO escrow_fund_idempotency (contract_id, idempotency_key, escrow_id)
+		VALUES ($1,$2,$3)`, contractID, idempotencyKey, escrowID)
+	if err != nil && isUniqueViolation(err) {
+		return ErrDuplicateFund
+	}
+	return err
 }
 
 // AddHeld increases held_cents (used on funding).

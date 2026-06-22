@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aizorix/platform/review/internal/contractparties"
 	"github.com/aizorix/platform/review/internal/httpapi"
 	"github.com/aizorix/platform/review/internal/service"
 	"github.com/aizorix/platform/review/internal/store"
@@ -30,7 +31,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	svc := service.New(store.New(pool))
+	// Contract service base URL for the internal parties lookup that authorizes reviews.
+	contractURL := config.Get("CONTRACT_URL", "http://contract:8080")
+	svc := service.New(store.New(pool), contractparties.New(contractURL))
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(base.HTTPPort),
 		Handler:           httpapi.New(svc, logger).Routes(),

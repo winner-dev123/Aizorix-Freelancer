@@ -186,10 +186,14 @@ func (a *API) mapError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrInvalidRating):
 		writeErr(w, http.StatusBadRequest, "INVALID_RATING", err.Error())
+	case errors.Is(err, service.ErrInvalidContract):
+		writeErr(w, http.StatusBadRequest, "INVALID_CONTRACT", err.Error())
+	case errors.Is(err, service.ErrContractNotComplete):
+		writeErr(w, http.StatusBadRequest, "CONTRACT_NOT_COMPLETE", err.Error())
 	case errors.Is(err, service.ErrAlreadyReviewed):
 		writeErr(w, http.StatusConflict, "ALREADY_REVIEWED", err.Error())
 	case errors.Is(err, service.ErrForbidden):
-		writeErr(w, http.StatusForbidden, "FORBIDDEN", "only the reviewee may respond to this review")
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "not a party to this contract or not permitted")
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "NOT_FOUND", "resource not found")
 	default:

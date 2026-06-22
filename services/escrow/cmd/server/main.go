@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aizorix/platform/escrow/internal/contractparties"
 	"github.com/aizorix/platform/escrow/internal/httpapi"
 	"github.com/aizorix/platform/escrow/internal/service"
 	"github.com/aizorix/platform/escrow/internal/store"
@@ -31,9 +32,12 @@ func main() {
 	}
 	defer pool.Close()
 	svc := service.New(store.New(pool))
+	// Contract service base URL for the internal parties lookup that authorizes money ops.
+	contractURL := config.Get("CONTRACT_URL", "http://contract:8080")
+	parties := contractparties.New(contractURL)
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(base.HTTPPort),
-		Handler:           httpapi.New(svc, logger).Routes(),
+		Handler:           httpapi.New(svc, parties, logger).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

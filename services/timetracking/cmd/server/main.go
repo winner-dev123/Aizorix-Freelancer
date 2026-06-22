@@ -14,6 +14,7 @@ import (
 	"github.com/aizorix/platform/pkg/config"
 	"github.com/aizorix/platform/pkg/log"
 	"github.com/aizorix/platform/pkg/pg"
+	"github.com/aizorix/platform/timetracking/internal/contractparties"
 	"github.com/aizorix/platform/timetracking/internal/httpapi"
 	"github.com/aizorix/platform/timetracking/internal/service"
 	"github.com/aizorix/platform/timetracking/internal/store"
@@ -33,7 +34,9 @@ func main() {
 	}
 	defer pool.Close()
 
-	svc := service.New(store.New(pool))
+	// Contract service base URL for the internal parties lookup that authorizes session starts.
+	contractURL := config.Get("CONTRACT_URL", "http://contract:8080")
+	svc := service.New(store.New(pool), contractparties.New(contractURL))
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(base.HTTPPort),
 		Handler:           httpapi.New(svc).Routes(),

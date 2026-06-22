@@ -3,12 +3,14 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 
+	"github.com/aizorix/platform/escrow/internal/contractparties"
 	"github.com/aizorix/platform/escrow/internal/service"
 	"github.com/aizorix/platform/escrow/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -16,20 +18,23 @@ import (
 
 type API struct {
 	svc    *service.Service
+	parties partiesClient
 	logger *slog.Logger
 }
 
-func New(svc *service.Service, logger *slog.Logger) *API { return &API{svc: svc, logger: logger} }
+// partiesClient resolves a contract's parties from the contract service. It is the
+// authorization primitive for the escrow money endpoints (see contractparties.Client).
+type partiesClient interface {
+	Get(ctx context.Context, contractID string) (contractparties.Parties, error)
+}
+
+func New(svc *service.Service, parties partiesClient, logger *slog.Logger) *API {
+	return &API{svc: svc, parties: parties, logger: logger}
+}
 
 // requireUser reads the gateway-injected X-User-Id identity header and writes a 401 when it
 // is absent. This is defense-in-depth: the gateway already authenticates callers, but the
 // escrow money endpoints must never run unauthenticated even if that layer is bypassed.
-//
-// AUTHORIZATION NOTE: in production, releasing/refunding escrow is additionally gated on the
-// caller being a party to the contract (and holding the right role) — that ownership check
-// is performed against the contract service before the money moves. This handler only
-// enforces authentication; the contract-party/role gate lives in the production gateway and
-// the contract service's RBAC/ABAC guards.
 func (a *API) requireUser(w http.ResponseWriter, r *http.Request) (string, bool) {
 	uid := r.Header.Get("X-User-Id")
 	if uid == "" {
@@ -37,6 +42,61 @@ func (a *API) requireUser(w http.ResponseWriter, r *http.Request) (string, bool)
 		return "", false
 	}
 	return uid, true
+}
+
+// resolveParties looks up the contract's parties, failing CLOSED: any lookup error (contract
+// service unreachable, non-2xx, or contract missing) writes a 403 and returns ok=false so the
+// money never moves on an unverifiable authorization.
+func (a *API) resolveParties(w http.ResponseWriter, r *http.Request, contractID string) (contractparties.Parties, bool) {
+	p, err := a.parties.Get(r.Context(), contractID)
+	if err != nil {
+		if a.logger != nil {
+			a.logger.Warn("contract parties lookup failed", "contract_id", contractID, "err", err)
+		}
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "cannot authorize against contract")
+		return contractparties.Parties{}, false
+	}
+	return p, true
+}
+
+// requireClient resolves the contract's parties and requires the caller to be its client_id.
+// Money-moving operations (fund/allocate/release/refund) are the client's to authorize. Fails
+// CLOSED on any lookup error and 403s a non-client caller.
+func (a *API) requireClient(w http.ResponseWriter, r *http.Request, uid, contractID string) bool {
+	p, ok := a.resolveParties(w, r, contractID)
+	if !ok {
+		return false
+	}
+	if uid != p.ClientID {
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "only the contract client may perform this operation")
+		return false
+	}
+	return true
+}
+
+// requireParty resolves the contract's parties and requires the caller to be a party (client
+// or freelancer). Used by the read endpoints. Fails CLOSED on any lookup error.
+func (a *API) requireParty(w http.ResponseWriter, r *http.Request, uid, contractID string) bool {
+	p, ok := a.resolveParties(w, r, contractID)
+	if !ok {
+		return false
+	}
+	if !p.IsParty(uid) {
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "not a party to this contract")
+		return false
+	}
+	return true
+}
+
+// contractIDForEscrow loads an escrow by id and returns its contract_id, so {id}-based ops can
+// resolve parties. A missing escrow writes 404; other store errors write 500.
+func (a *API) contractIDForEscrow(w http.ResponseWriter, r *http.Request, escrowID string) (string, bool) {
+	e, err := a.svc.GetEscrow(r.Context(), escrowID)
+	if err != nil {
+		a.mapError(w, err)
+		return "", false
+	}
+	return e.ContractID, true
 }
 
 func (a *API) Routes() http.Handler {
@@ -57,13 +117,15 @@ func (a *API) Routes() http.Handler {
 }
 
 type fundReq struct {
-	ContractID  string `json:"contract_id"`
-	AmountCents int64  `json:"amount_cents"`
-	Currency    string `json:"currency"`
+	ContractID     string `json:"contract_id"`
+	AmountCents    int64  `json:"amount_cents"`
+	Currency       string `json:"currency"`
+	IdempotencyKey string `json:"idempotency_key"`
 }
 
 func (a *API) fund(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireUser(w, r); !ok {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
 		return
 	}
 	var req fundReq
@@ -74,7 +136,10 @@ func (a *API) fund(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "MISSING_PARAM", "contract_id is required")
 		return
 	}
-	e, err := a.svc.FundEscrow(r.Context(), req.ContractID, req.AmountCents, req.Currency)
+	if !a.requireClient(w, r, uid, req.ContractID) {
+		return
+	}
+	e, err := a.svc.FundEscrow(r.Context(), req.ContractID, req.AmountCents, req.Currency, req.IdempotencyKey)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -83,7 +148,19 @@ func (a *API) fund(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getEscrow(w http.ResponseWriter, r *http.Request) {
-	e, err := a.svc.GetEscrow(r.Context(), chi.URLParam(r, "id"))
+	uid, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireParty(w, r, uid, contractID) {
+		return
+	}
+	e, err := a.svc.GetEscrow(r.Context(), id)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -92,9 +169,16 @@ func (a *API) getEscrow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getByContract(w http.ResponseWriter, r *http.Request) {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
 	contractID := r.URL.Query().Get("contract_id")
 	if contractID == "" {
 		writeErr(w, http.StatusBadRequest, "MISSING_PARAM", "contract_id is required")
+		return
+	}
+	if !a.requireParty(w, r, uid, contractID) {
 		return
 	}
 	e, err := a.svc.GetEscrowByContract(r.Context(), contractID)
@@ -111,7 +195,8 @@ type allocateReq struct {
 }
 
 func (a *API) allocate(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireUser(w, r); !ok {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
 		return
 	}
 	var req allocateReq
@@ -122,7 +207,15 @@ func (a *API) allocate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "MISSING_PARAM", "milestone_id is required")
 		return
 	}
-	alloc, err := a.svc.AllocateToMilestone(r.Context(), chi.URLParam(r, "id"), req.MilestoneID, req.AmountCents)
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireClient(w, r, uid, contractID) {
+		return
+	}
+	alloc, err := a.svc.AllocateToMilestone(r.Context(), id, req.MilestoneID, req.AmountCents)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -136,7 +229,8 @@ type releaseMilestoneReq struct {
 }
 
 func (a *API) releaseMilestone(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireUser(w, r); !ok {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
 		return
 	}
 	var req releaseMilestoneReq
@@ -147,7 +241,15 @@ func (a *API) releaseMilestone(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "MISSING_PARAM", "milestone_id is required")
 		return
 	}
-	e, err := a.svc.ReleaseMilestone(r.Context(), chi.URLParam(r, "id"), req.MilestoneID, req.AmountCents)
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireClient(w, r, uid, contractID) {
+		return
+	}
+	e, err := a.svc.ReleaseMilestone(r.Context(), id, req.MilestoneID, req.AmountCents)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -161,7 +263,8 @@ type releaseHoursReq struct {
 }
 
 func (a *API) releaseHours(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireUser(w, r); !ok {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
 		return
 	}
 	var req releaseHoursReq
@@ -172,7 +275,15 @@ func (a *API) releaseHours(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "MISSING_PARAM", "billing_week is required")
 		return
 	}
-	e, err := a.svc.ReleaseHours(r.Context(), chi.URLParam(r, "id"), req.BillingWeek, req.AmountCents)
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireClient(w, r, uid, contractID) {
+		return
+	}
+	e, err := a.svc.ReleaseHours(r.Context(), id, req.BillingWeek, req.AmountCents)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -186,14 +297,23 @@ type refundReq struct {
 }
 
 func (a *API) refund(w http.ResponseWriter, r *http.Request) {
-	if _, ok := a.requireUser(w, r); !ok {
+	uid, ok := a.requireUser(w, r)
+	if !ok {
 		return
 	}
 	var req refundReq
 	if !decode(w, r, &req) {
 		return
 	}
-	e, err := a.svc.RefundEscrow(r.Context(), chi.URLParam(r, "id"), req.AmountCents, req.Reason)
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireClient(w, r, uid, contractID) {
+		return
+	}
+	e, err := a.svc.RefundEscrow(r.Context(), id, req.AmountCents, req.Reason)
 	if err != nil {
 		a.mapError(w, err)
 		return
@@ -202,7 +322,19 @@ func (a *API) refund(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listAllocations(w http.ResponseWriter, r *http.Request) {
-	allocs, err := a.svc.ListAllocations(r.Context(), chi.URLParam(r, "id"))
+	uid, ok := a.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	contractID, ok := a.contractIDForEscrow(w, r, id)
+	if !ok {
+		return
+	}
+	if !a.requireParty(w, r, uid, contractID) {
+		return
+	}
+	allocs, err := a.svc.ListAllocations(r.Context(), id)
 	if err != nil {
 		a.mapError(w, err)
 		return

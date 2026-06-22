@@ -26,7 +26,7 @@ func TestEscrowReserveProtectsFunds(t *testing.T) {
 	seed := itest.SeedFixedContract(ctx, t, pool, amount)
 
 	// Fund 100 into the contract's escrow.
-	e, err := svc.FundEscrow(ctx, seed.ContractID, amount, "USD")
+	e, err := svc.FundEscrow(ctx, seed.ContractID, amount, "USD", "")
 	if err != nil {
 		t.Fatalf("fund: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestAllocateIsIdempotent(t *testing.T) {
 	const amount int64 = 5000
 	seed := itest.SeedFixedContract(ctx, t, pool, amount)
 
-	e, err := svc.FundEscrow(ctx, seed.ContractID, amount, "USD")
+	e, err := svc.FundEscrow(ctx, seed.ContractID, amount, "USD", "")
 	if err != nil {
 		t.Fatalf("fund: %v", err)
 	}

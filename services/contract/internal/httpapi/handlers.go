@@ -41,7 +41,25 @@ func (a *API) Routes() http.Handler {
 		r.Post("/milestones/{mid}/submit", a.submitMilestone)
 		r.Post("/milestones/{mid}/approve", a.approveMilestone)
 	})
+	// Internal, server-to-server only — MUST NOT be routed through the public gateway. Lets
+	// escrow / timetracking / review authorize an action against a contract by resolving its
+	// parties. No caller identity is required; network reachability is the trust boundary.
+	r.Get("/v1/internal/contracts/{id}/parties", a.internalParties)
 	return r
+}
+
+func (a *API) internalParties(w http.ResponseWriter, r *http.Request) {
+	clientID, freelancerID, status, err := a.svc.ContractParties(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"contract_id":   chi.URLParam(r, "id"),
+		"client_id":     clientID,
+		"freelancer_id": freelancerID,
+		"status":        status,
+	})
 }
 
 // ── request DTOs ────────────────────────────────────────────────────────────
@@ -94,6 +112,13 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.BudgetType != "fixed" && req.BudgetType != "hourly" {
 		writeErr(w, http.StatusBadRequest, "VALIDATION_FAILED", "budget_type must be fixed or hourly")
+		return
+	}
+	// The caller must be the client they name — a user cannot mint a contract on behalf of
+	// someone else. (Deeper hardening, tracked separately: derive freelancer_id / rate / amount /
+	// fee from the accepted proposal server-side rather than trusting the request body.)
+	if req.ClientID != p.UserID {
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "client_id must be the authenticated caller")
 		return
 	}
 	ms := make([]store.MilestoneInput, 0, len(req.Milestones))

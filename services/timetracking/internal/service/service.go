@@ -11,6 +11,7 @@ import (
 	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/aizorix/platform/timetracking/internal/activity"
+	"github.com/aizorix/platform/timetracking/internal/contractparties"
 	"github.com/aizorix/platform/timetracking/internal/store"
 )
 
@@ -23,12 +24,21 @@ var (
 	ErrForbidden = rbac.ErrForbidden
 )
 
-type Service struct {
-	store  *store.Store
-	params activity.Params
+// partiesClient resolves a contract's parties from the contract service. It authorizes that
+// the caller opening a session is the contract's freelancer (see contractparties.Client).
+type partiesClient interface {
+	Get(ctx context.Context, contractID string) (contractparties.Parties, error)
 }
 
-func New(st *store.Store) *Service { return &Service{store: st, params: activity.DefaultParams()} }
+type Service struct {
+	store   *store.Store
+	params  activity.Params
+	parties partiesClient
+}
+
+func New(st *store.Store, parties partiesClient) *Service {
+	return &Service{store: st, params: activity.DefaultParams(), parties: parties}
+}
 
 type StartResult struct {
 	SessionID       string
@@ -37,6 +47,20 @@ type StartResult struct {
 }
 
 func (s *Service) StartSession(ctx context.Context, contractID, freelancerID, deviceID, tz string, startedAt time.Time) (*StartResult, error) {
+	// Authorize against the contract service BEFORE opening a billable session: the caller must
+	// be the contract's freelancer and the contract must be active. The lookup FAILS CLOSED —
+	// any error (contract missing, contract service unreachable) denies (rbac.ErrForbidden), so
+	// a session is never opened on an unverifiable or client-spoofed contract_id.
+	if contractID == "" {
+		return nil, rbac.ErrForbidden
+	}
+	p, err := s.parties.Get(ctx, contractID)
+	if err != nil {
+		return nil, rbac.ErrForbidden
+	}
+	if freelancerID == "" || freelancerID != p.FreelancerID || p.Status != "active" {
+		return nil, rbac.ErrForbidden
+	}
 	week := isoWeek(startedAt)
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {

@@ -323,6 +323,17 @@ func (s *Service) GetContract(ctx context.Context, id, userID string) (*Contract
 	return &ContractView{Contract: *c, Milestones: ms}, nil
 }
 
+// ContractParties returns a contract's parties and status WITHOUT a caller check. It backs the
+// internal, server-to-server endpoint that other services (escrow, timetracking, review) use to
+// authorize an action against a contract. It MUST NOT be exposed on the public gateway.
+func (s *Service) ContractParties(ctx context.Context, contractID string) (clientID, freelancerID, status string, err error) {
+	c, err := s.store.GetContract(ctx, contractID)
+	if err != nil {
+		return "", "", "", err
+	}
+	return c.ClientID, c.FreelancerID, c.Status, nil
+}
+
 // ListContractsForUser lists contracts where the user is the given party (client/freelancer).
 func (s *Service) ListContractsForUser(ctx context.Context, userID, role string) ([]store.Contract, error) {
 	if role != "freelancer" {

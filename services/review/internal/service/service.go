@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/aizorix/platform/review/internal/contractparties"
 	"github.com/aizorix/platform/review/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/jackc/pgx/v5"
@@ -16,19 +17,64 @@ var (
 	ErrAlreadyReviewed = errors.New("review: reviewer already reviewed this contract")
 	ErrForbidden       = errors.New("review: not permitted")
 	ErrNotFound        = store.ErrNotFound
+	// ErrInvalidContract is a 400: contract_id missing/empty or reviewee is not the opposite
+	// party on the contract.
+	ErrInvalidContract = errors.New("review: invalid contract or reviewee")
+	// ErrContractNotComplete is a 400: the contract has not reached a completed/terminal state,
+	// so it is too early to review.
+	ErrContractNotComplete = errors.New("review: contract is not in a completed state")
 )
 
-type Service struct{ store *store.Store }
+// partiesClient resolves a contract's parties from the contract service. It is the
+// authorization primitive for review creation (see contractparties.Client).
+type partiesClient interface {
+	Get(ctx context.Context, contractID string) (contractparties.Parties, error)
+}
 
-func New(st *store.Store) *Service { return &Service{store: st} }
+type Service struct {
+	store   *store.Store
+	parties partiesClient
+}
+
+func New(st *store.Store, parties partiesClient) *Service {
+	return &Service{store: st, parties: parties}
+}
+
+// completedContractStatuses are the contract states in which a review may be created. Reviews
+// are for finished work, so only a terminal/completed contract qualifies.
+var completedContractStatuses = map[string]bool{"completed": true}
 
 // CreateReview inserts an unpublished review. When both parties on the contract have now
 // reviewed, both reviews are published, reputations recomputed, and review.published
 // events emitted — all in one transaction (double-blind reveal).
+//
+// Before inserting it AUTHORIZES the review against the contract service: the contract must
+// exist, the reviewer must be one of its parties, the reviewee must be the OPPOSITE party,
+// and the contract must be in a completed state. The parties lookup FAILS CLOSED — any lookup
+// error denies (ErrForbidden) so a review is never created on an unverifiable contract.
 func (s *Service) CreateReview(ctx context.Context, contractID, reviewerID, revieweeID string, rating int, dimensions map[string]any, comment *string) (*store.Review, error) {
 	if rating < 1 || rating > 5 {
 		return nil, ErrInvalidRating
 	}
+	if contractID == "" {
+		return nil, ErrInvalidContract
+	}
+	p, err := s.parties.Get(ctx, contractID)
+	if err != nil {
+		// Fail closed: contract missing or contract service unreachable -> deny.
+		return nil, ErrForbidden
+	}
+	if !p.IsParty(reviewerID) {
+		return nil, ErrForbidden
+	}
+	// The reviewee must be exactly the other party on the contract.
+	if revieweeID != p.Opposite(reviewerID) {
+		return nil, ErrInvalidContract
+	}
+	if !completedContractStatuses[p.Status] {
+		return nil, ErrContractNotComplete
+	}
+
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return nil, err
