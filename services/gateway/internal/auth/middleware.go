@@ -54,7 +54,7 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		injectIdentity(r, claims)
-		r = r.WithContext(context.WithValue(r.Context(), ctxUserID, claims.UserID))
+		r = r.WithContext(ContextWithUserID(r.Context(), claims.UserID))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -65,6 +65,13 @@ func injectIdentity(r *http.Request, c *token.Claims) {
 	r.Header.Set("X-Permissions", strings.Join(c.Permissions, ","))
 	r.Header.Set("X-Roles", strings.Join(c.Roles, ","))
 	r.Header.Set("X-Residency", c.ResidencyCountry)
+}
+
+// ContextWithUserID returns a context carrying the authenticated user id — the value
+// UserIDFromContext reads. Exported so other middleware (and tests) can establish the
+// identity that the rate limiter and downstream handlers key on.
+func ContextWithUserID(ctx context.Context, uid string) context.Context {
+	return context.WithValue(ctx, ctxUserID, uid)
 }
 
 // UserIDFromContext returns the authenticated user id set by the middleware, if any.

@@ -226,12 +226,13 @@ func proxyPipeline(router *Router, verifier *auth.Verifier, limiter *ratelimit.L
 	// The terminal handler is the reverse-proxy router.
 	proxied := http.Handler(router)
 
-	// Protected branch: auth populates the user id on the context, then the rate limiter
-	// keys on it (per-user policy). Order is verify -> rate-limit -> proxy.
+	// Protected branch: auth populates the user id on the context, then a per-user rate limit
+	// keys on it. Order is verify -> user-keyed rate-limit -> proxy. (classify finds the user
+	// id only after verifier.Middleware has set it, which is why this limit lives post-auth.)
 	protected := verifier.Middleware(limiter.Middleware(proxied))
 
-	// Public branch: no user id is ever available, so rate-limit by IP only, then proxy.
-	public := limiter.Middleware(proxied)
+	// Public branch: no per-user identity exists; the up-front IP-keyed limit below is its gate.
+	public := proxied
 
 	// Branch per request because public/protected is decided by method+path, not mount point.
 	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -242,10 +243,16 @@ func proxyPipeline(router *Router, verifier *auth.Verifier, limiter *ratelimit.L
 		protected.ServeHTTP(w, r)
 	})
 
-	// Strip any client-supplied trusted identity headers up front — public and
-	// protected alike — so nothing downstream can be spoofed.
+	// Up-front IP-keyed rate limit on EVERY request: pre-auth, classify() has no user id so it
+	// keys by IP. This gates public routes AND protects the auth path itself from a token-flood
+	// DoS (without it, an attacker could force a JWT verification per request, unmetered).
+	// Protected routes additionally get the per-user limit after auth (above).
+	ipLimited := limiter.Middleware(dispatch)
+
+	// Strip any client-supplied trusted identity headers first of all — public and protected
+	// alike, before anything else runs — so nothing downstream can be spoofed.
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth.StripTrustedHeaders(r)
-		dispatch.ServeHTTP(w, r)
+		ipLimited.ServeHTTP(w, r)
 	})
 }
