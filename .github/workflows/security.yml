@@ -37,6 +37,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # CodeQL's Go autobuild uses whatever `go` is on PATH; the runner default (1.24.x) can't
+      # satisfy go.work's `go 1.25.0` toolchain directive, so extraction fails. Install the
+      # version go.work requires before autobuild runs.
+      - name: Set up Go
+        if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.work
+          cache: false
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
