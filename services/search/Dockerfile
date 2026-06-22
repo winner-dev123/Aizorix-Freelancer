@@ -1,9 +1,8 @@
 # Multi-stage build. Build context is the repo root so the shared pkg module is available.
 # Build:  docker build -f services/search/Dockerfile -t aizorix/search:dev .
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
-COPY go.work go.work
 COPY services/pkg/ services/pkg/
 COPY services/search/ services/search/
 WORKDIR /src/services/search

@@ -1,9 +1,8 @@
 # Multi-stage build. Build context is the repo root so the shared pkg module is available.
 # Build:  docker build -f services/admin/Dockerfile -t aizorix/admin:dev .
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
-COPY go.work go.work
 COPY services/pkg/ services/pkg/
 COPY services/admin/ services/admin/
 WORKDIR /src/services/admin

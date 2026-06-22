@@ -1,6 +1,6 @@
 # Multi-stage build. Build context is the repo root so the shared pkg module is available.
 # Build:  docker build -f services/gateway/Dockerfile -t aizorix/gateway:dev .
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
 # Copy the modules the gateway depends on. The gateway is a standalone module

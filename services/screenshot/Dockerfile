@@ -1,7 +1,6 @@
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
-COPY go.work go.work
 COPY services/pkg/ services/pkg/
 COPY services/screenshot/ services/screenshot/
 WORKDIR /src/services/screenshot
