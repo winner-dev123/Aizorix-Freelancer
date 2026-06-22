@@ -8,9 +8,31 @@ import (
 	"testing"
 
 	"github.com/aizorix/platform/contract/internal/itest"
+	"github.com/aizorix/platform/contract/internal/proposallookup"
 	"github.com/aizorix/platform/contract/internal/service"
 	"github.com/aizorix/platform/contract/internal/store"
 )
+
+// stubProposals is a fake ProposalLookup returning a fixed accepted proposal, so the contract
+// state-machine integration test doesn't need the proposal service running. Terms are derived
+// from this proposal (freelancer, amount, owning client), matching the seeded parties.
+type stubProposals struct{ p proposallookup.Proposal }
+
+func (s stubProposals) Get(context.Context, string) (proposallookup.Proposal, error) {
+	return s.p, nil
+}
+
+func acceptedProposal(p itest.Parties, bidCents int64) proposallookup.Proposal {
+	return proposallookup.Proposal{
+		ProposalID:      p.ProposalID,
+		ProjectID:       p.ProjectID,
+		ProjectClientID: p.ClientID,
+		FreelancerID:    p.FreelancerID,
+		Status:          "accepted",
+		BidAmountCents:  bidCents,
+		Currency:        "USD",
+	}
+}
 
 // TestContractHappyPathAndForbidden drives create-from-proposal -> activate ->
 // fund/submit/approve milestone state machine (happy path), then asserts a non-party caller
@@ -18,9 +40,8 @@ import (
 func TestContractHappyPathAndForbidden(t *testing.T) {
 	ctx := context.Background()
 	pool := itest.NewPostgres(t)
-	svc := service.New(store.New(pool))
-
 	parties := itest.SeedParties(ctx, t, pool)
+	svc := service.New(store.New(pool), stubProposals{acceptedProposal(parties, 50000)})
 
 	c, err := svc.CreateFromProposal(ctx, service.CreateInput{
 		ProjectID:    parties.ProjectID,
@@ -44,7 +65,7 @@ func TestContractHappyPathAndForbidden(t *testing.T) {
 	if err := svc.ActivateContract(ctx, c.ID, parties.ClientID); err != nil {
 		t.Fatalf("activate: %v", err)
 	}
-	view, err := svc.GetContract(ctx, c.ID)
+	view, err := svc.GetContract(ctx, c.ID, parties.ClientID)
 	if err != nil {
 		t.Fatalf("get contract: %v", err)
 	}
@@ -65,7 +86,7 @@ func TestContractHappyPathAndForbidden(t *testing.T) {
 	if err := svc.FundMilestone(ctx, milestoneID, parties.ClientID); err != nil {
 		t.Fatalf("fund milestone: %v", err)
 	}
-	assertMilestoneStatus(ctx, t, svc, c.ID, "funded")
+	assertMilestoneStatus(ctx, t, svc, c.ID, parties.ClientID, "funded")
 
 	// ── Forbidden: an outsider cannot submit work. ──
 	if err := svc.SubmitMilestone(ctx, milestoneID, parties.OutsiderID, "note", nil); !errors.Is(err, service.ErrForbidden) {
@@ -76,7 +97,7 @@ func TestContractHappyPathAndForbidden(t *testing.T) {
 	if err := svc.SubmitMilestone(ctx, milestoneID, parties.FreelancerID, "delivered", []string{"s3://k"}); err != nil {
 		t.Fatalf("submit milestone: %v", err)
 	}
-	assertMilestoneStatus(ctx, t, svc, c.ID, "submitted")
+	assertMilestoneStatus(ctx, t, svc, c.ID, parties.ClientID, "submitted")
 
 	// ── Forbidden: an outsider cannot approve. ──
 	if err := svc.ApproveMilestone(ctx, milestoneID, parties.OutsiderID); !errors.Is(err, service.ErrForbidden) {
@@ -87,7 +108,7 @@ func TestContractHappyPathAndForbidden(t *testing.T) {
 	if err := svc.ApproveMilestone(ctx, milestoneID, parties.ClientID); err != nil {
 		t.Fatalf("approve milestone: %v", err)
 	}
-	assertMilestoneStatus(ctx, t, svc, c.ID, "approved")
+	assertMilestoneStatus(ctx, t, svc, c.ID, parties.ClientID, "approved")
 
 	// A non-party may not even read the contract's event timeline.
 	if _, err := svc.ContractEvents(ctx, c.ID, parties.OutsiderID); !errors.Is(err, service.ErrForbidden) {
@@ -103,8 +124,8 @@ func TestContractHappyPathAndForbidden(t *testing.T) {
 func TestInvalidStateTransitionGuards(t *testing.T) {
 	ctx := context.Background()
 	pool := itest.NewPostgres(t)
-	svc := service.New(store.New(pool))
 	parties := itest.SeedParties(ctx, t, pool)
+	svc := service.New(store.New(pool), stubProposals{acceptedProposal(parties, 1000)})
 
 	c, err := svc.CreateFromProposal(ctx, service.CreateInput{
 		ProjectID: parties.ProjectID, ProposalID: parties.ProposalID,
@@ -115,7 +136,7 @@ func TestInvalidStateTransitionGuards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	view, err := svc.GetContract(ctx, c.ID)
+	view, err := svc.GetContract(ctx, c.ID, parties.ClientID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
@@ -127,9 +148,9 @@ func TestInvalidStateTransitionGuards(t *testing.T) {
 	}
 }
 
-func assertMilestoneStatus(ctx context.Context, t *testing.T, svc *service.Service, contractID, want string) {
+func assertMilestoneStatus(ctx context.Context, t *testing.T, svc *service.Service, contractID, userID, want string) {
 	t.Helper()
-	view, err := svc.GetContract(ctx, contractID)
+	view, err := svc.GetContract(ctx, contractID, userID)
 	if err != nil {
 		t.Fatalf("get contract: %v", err)
 	}
