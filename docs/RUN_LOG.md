@@ -120,7 +120,7 @@ proposal. **13 more confirmed bugs fixed** (5 critical, 6 high, 1 medium, 1 low)
 | 27 | HIGH | fraud | A subject could submit negative signal weights to game its own score down. Weight now bounded to [0,1]. |
 | 28 | HIGH | review | A third party could post/overwrite the official response on anyone's review. Now responder must be the reviewee. |
 | 29 | HIGH | contract | IDOR: `GET /v1/contracts/{id}` leaked any contract to any user. Now party-checked. |
-| 30 | HIGH | contract | `create` trusted a client-supplied `client_id`. Now requires `client_id == caller` (full proposal-derivation tracked as follow-up). |
+| 30 | HIGH | contract | `create` trusted client-supplied parties/rate/fee. Now derives freelancer/project/amount/fee from the **accepted proposal** (internal server-to-server lookup, fail-closed); the caller must own the project, and fixed milestones must total the accepted bid. Unit-tested. |
 | 31 | HIGH | timetracking | No session-ownership check — could submit slices to / stop another freelancer's session. Now enforces `freelancer_id == caller`. |
 | 32 | HIGH | timetracking | `StartSession` trusted a client-supplied `contract_id`. Now requires the caller be the contract's freelancer. |
 | 33 | MED | proposal | `GET /v1/proposals?project_id=` leaked competitors' bids. Now restricted to the project owner. |
