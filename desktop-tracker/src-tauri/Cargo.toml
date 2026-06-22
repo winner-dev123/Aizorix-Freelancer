@@ -35,7 +35,7 @@ base64 = "0.22"
 zeroize = "1.8"
 
 # Screenshots: capture + encode (WebP) + perceptual hash
-xcap = "0.0.12"            # cross-platform screen capture (Win/macOS/Linux)
+xcap = "0.9.6"            # cross-platform screen capture (Win/macOS/Linux)
 image = { version = "0.25", default-features = false, features = ["webp", "png"] }
 img_hash = "3.2"          # perceptual hashing for duplicate detection
 
