@@ -28,15 +28,17 @@ linters-settings:
   errcheck:
     check-type-assertions: true
     check-blank: false
-  gosec:
-    excludes:
-      # G115 (integer overflow on conversion) is noisy on cents<->int64 money math.
-      - G115
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
   exclude-rules:
+    # G115 (integer overflow on int64<->int conversion) is noise on the cents-based money math.
+    # Suppressed by text rather than gosec.excludes, which is schema-validated against the set of
+    # rule codes a given golangci-lint version knows (G115 is absent in older pinned versions, so
+    # listing it under gosec.excludes fails `config verify`).
+    - linters: [gosec]
+      text: "G115"
     # Test files: relax error-checking and security rules that produce noise.
     - path: _test\.go
       linters:
