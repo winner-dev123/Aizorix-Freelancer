@@ -28,7 +28,7 @@ type StubPresigner struct{ Endpoint string }
 func (s StubPresigner) PresignPut(_ context.Context, bucket, key string, ttl time.Duration) (string, map[string]string, error) {
 	url := s.Endpoint + "/" + bucket + "/" + key + "?X-Amz-Expires=" + itoa(int(ttl.Seconds()))
 	headers := map[string]string{
-		"x-amz-server-side-encryption":            "aws:kms",
+		"x-amz-server-side-encryption":                "aws:kms",
 		"x-amz-server-side-encryption-aws-kms-key-id": "alias/aizorix-screenshots",
 		"content-type": "application/octet-stream",
 	}

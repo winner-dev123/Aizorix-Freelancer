@@ -26,7 +26,7 @@ var (
 
 type Store struct{ pool *pgxpool.Pool }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store  { return &Store{pool: pool} }
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 // newUUID returns a canonical RFC 4122 version-4 UUID string without pulling in an

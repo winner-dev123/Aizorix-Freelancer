@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
+	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/aizorix/platform/proposal/internal/service"
 	"github.com/aizorix/platform/proposal/internal/store"
-	"github.com/aizorix/platform/pkg/rbac"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

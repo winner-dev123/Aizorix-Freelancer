@@ -21,9 +21,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/aizorix/platform/pkg/crypto"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aizorix/platform/pkg/crypto"
 )
 
 // demoPassword is shared by every seeded account. It satisfies the auth service's
@@ -161,15 +162,15 @@ func (s *seeder) run() error {
 
 	// ── Projects (one fixed, one hourly) ──────────────────────────────────────
 	fixedProjectID, err := upsertProject(s.ctx, tx, projectSpec{
-		clientID:    userIDs["client1"],
-		title:       "Build a payments reconciliation service",
-		description: "Design and implement a double-entry ledger reconciliation job in Go against PostgreSQL.",
-		budgetType:  "fixed",
-		budgetMin:   ptr(int64(400000)),
-		budgetMax:   ptr(int64(400000)),
-		experience:  "expert",
+		clientID:     userIDs["client1"],
+		title:        "Build a payments reconciliation service",
+		description:  "Design and implement a double-entry ledger reconciliation job in Go against PostgreSQL.",
+		budgetType:   "fixed",
+		budgetMin:    ptr(int64(400000)),
+		budgetMax:    ptr(int64(400000)),
+		experience:   "expert",
 		durationDays: ptr(30),
-		status:      "published",
+		status:       "published",
 	})
 	if err != nil {
 		return fmt.Errorf("fixed project: %w", err)

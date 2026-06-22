@@ -35,7 +35,7 @@ func main() {
 	defer pool.Close()
 
 	producer := kafka.NewProducer(strings.Split(base.KafkaBrokers, ","))
-	defer producer.Close()
+	defer func() { _ = producer.Close() }()
 
 	batch := config.GetInt("RELAY_BATCH", 100)
 	interval := config.GetDuration("RELAY_INTERVAL", 500*time.Millisecond)

@@ -10,8 +10,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aizorix/platform/gateway/internal/observe"
 	"github.com/google/uuid"
+
+	"github.com/aizorix/platform/gateway/internal/observe"
 )
 
 type ctxKey int

@@ -169,13 +169,13 @@ func (s *Store) InsertRefreshToken(ctx context.Context, tx pgx.Tx, sessionID, us
 }
 
 type RefreshToken struct {
-	ID         string
-	SessionID  string
-	UserID     string
-	FamilyID   string
-	UsedAt     *time.Time
-	RevokedAt  *time.Time
-	ExpiresAt  time.Time
+	ID        string
+	SessionID string
+	UserID    string
+	FamilyID  string
+	UsedAt    *time.Time
+	RevokedAt *time.Time
+	ExpiresAt time.Time
 }
 
 // LookupRefreshToken joins to the session for family + revocation context.

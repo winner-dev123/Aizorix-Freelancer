@@ -31,7 +31,7 @@ func (s *Store) SessionFreelancer(ctx context.Context, sessionID string) (string
 
 type Store struct{ pool *pgxpool.Pool }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store  { return &Store{pool: pool} }
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 func (s *Store) OpenSession(ctx context.Context, tx pgx.Tx, contractID, freelancerID, deviceID, tz, billingWeek string, startedAt time.Time) (string, error) {

@@ -38,13 +38,13 @@ func New(st *store.Store, kp crypto.KeyProvider, ps storage.Presigner, bucket st
 }
 
 type UploadSlot struct {
-	ScreenshotID  string
-	UploadURL     string
-	Bucket, Key   string
-	WrappedDEK    []byte
-	PlaintextDEK  []byte // returned once, over mTLS; never stored
-	KMSKeyID      string
-	Headers       map[string]string
+	ScreenshotID string
+	UploadURL    string
+	Bucket, Key  string
+	WrappedDEK   []byte
+	PlaintextDEK []byte // returned once, over mTLS; never stored
+	KMSKeyID     string
+	Headers      map[string]string
 }
 
 // RequestUploadSlot generates the per-screenshot DEK, records the pending row, and presigns

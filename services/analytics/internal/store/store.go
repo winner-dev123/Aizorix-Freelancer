@@ -53,10 +53,10 @@ type GMVRow struct {
 
 // FunnelRow is one day from funnel_daily.
 type FunnelRow struct {
-	Day                 time.Time
-	ProjectsPublished   int64
-	ProposalsSubmitted  int64
-	ContractsActivated  int64
+	Day                time.Time
+	ProjectsPublished  int64
+	ProposalsSubmitted int64
+	ContractsActivated int64
 }
 
 // ── rollup upserts (called by the consumer, inside one tx per event) ──────────

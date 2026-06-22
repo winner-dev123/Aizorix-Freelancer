@@ -8,10 +8,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/aizorix/platform/timetracking/internal/activity"
 	"github.com/aizorix/platform/timetracking/internal/service"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct{ svc *service.Service }

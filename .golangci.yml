@@ -1,63 +1,77 @@
-# golangci-lint configuration for the Aizorix monorepo.
-# Run with:  golangci-lint run ./...   (per module, the Makefile loops the workspace)
+version: "2"
 run:
-  timeout: 5m
   tests: true
-  # Each service is its own module; allow linting to traverse the workspace.
   allow-parallel-runners: true
-
 linters:
-  disable-all: true
+  default: none
   enable:
-    - govet
-    - staticcheck
     - errcheck
-    - ineffassign
-    - gofmt
-    - goimports
-    - unused
     - gosec
-
-linters-settings:
-  goimports:
-    # Group our own packages last for readable import blocks.
-    local-prefixes: github.com/aizorix/platform
-  govet:
-    enable:
-      - shadow
-  errcheck:
-    check-type-assertions: true
-    check-blank: false
-
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+      # Conventionally fire-and-forget calls: a deferred tx rollback (the happy path already
+      # committed) and resource Close()/std-stream writes. Ignoring their error is idiomatic.
+      exclude-functions:
+        - (github.com/jackc/pgx/v5.Tx).Rollback
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (*os.File).WriteString
+    # NOTE: govet `shadow` intentionally NOT enabled — `if err := f(); err != nil` style shadows
+    # are idiomatic Go and produce only noise here.
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - gosec
+        text: G115
+      # Dev/CLI utilities (the tools module's commands) — not production services; gosec's
+      # file-path / unchecked-error scrutiny is noise on throwaway migration/seed/tracker mains.
+      - linters:
+          - gosec
+          - errcheck
+        path: cmd/(migrate|devpg|tracker|seed)/
+      - linters:
+          - errcheck
+          - gosec
+          - govet
+        path: _test\.go
+      - linters:
+          - errcheck
+          - gosec
+          - ineffassign
+          - staticcheck
+          - unused
+        path: (\.pb\.go|_gen\.go|/generated/)
+      - linters:
+          - errcheck
+          - gosec
+          - staticcheck
+          - unused
+        path: db/(sqlc|generated)/
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    # G115 (integer overflow on int64<->int conversion) is noise on the cents-based money math.
-    # Suppressed by text rather than gosec.excludes, which is schema-validated against the set of
-    # rule codes a given golangci-lint version knows (G115 is absent in older pinned versions, so
-    # listing it under gosec.excludes fails `config verify`).
-    - linters: [gosec]
-      text: "G115"
-    # Test files: relax error-checking and security rules that produce noise.
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
-        - govet
-    # Generated code (sqlc, protobuf) should never be linted.
-    - path: (\.pb\.go|_gen\.go|/generated/)
-      linters:
-        - errcheck
-        - staticcheck
-        - gosec
-        - unused
-        - ineffassign
-    - path: db/(sqlc|generated)/
-      linters:
-        - errcheck
-        - staticcheck
-        - gosec
-        - unused
-  # Don't hide common false-positive messages outright; only the rules above.
-  exclude-use-default: false
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/aizorix/platform
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

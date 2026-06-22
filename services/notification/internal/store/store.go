@@ -17,7 +17,7 @@ var ErrNotFound = errors.New("store: not found")
 
 type Store struct{ pool *pgxpool.Pool }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store  { return &Store{pool: pool} }
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 // Notification is the read/write model for notifications.

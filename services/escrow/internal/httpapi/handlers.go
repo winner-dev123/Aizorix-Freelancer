@@ -10,16 +10,17 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/escrow/internal/contractparties"
 	"github.com/aizorix/platform/escrow/internal/service"
 	"github.com/aizorix/platform/escrow/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {
-	svc    *service.Service
+	svc     *service.Service
 	parties partiesClient
-	logger *slog.Logger
+	logger  *slog.Logger
 }
 
 // partiesClient resolves a contract's parties from the contract service. It is the

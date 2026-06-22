@@ -8,9 +8,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/review/internal/service"
 	"github.com/aizorix/platform/review/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

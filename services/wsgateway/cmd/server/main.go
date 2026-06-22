@@ -13,12 +13,13 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/aizorix/platform/pkg/log"
 	"github.com/aizorix/platform/wsgateway/internal/auth"
 	wsconfig "github.com/aizorix/platform/wsgateway/internal/config"
 	"github.com/aizorix/platform/wsgateway/internal/httpapi"
 	"github.com/aizorix/platform/wsgateway/internal/hub"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -42,7 +43,7 @@ func main() {
 	var rdb *redis.Client
 	if cfg.RedisAddr != "" {
 		rdb = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 	} else {
 		logger.Warn("REDIS_ADDR empty: running single-replica with local-only fan-out")
 	}

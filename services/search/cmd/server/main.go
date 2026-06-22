@@ -13,12 +13,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aizorix/platform/search/internal/httpapi"
-	"github.com/aizorix/platform/search/internal/service"
-	"github.com/aizorix/platform/search/internal/store"
 	"github.com/aizorix/platform/pkg/config"
 	"github.com/aizorix/platform/pkg/log"
 	"github.com/aizorix/platform/pkg/pg"
+	"github.com/aizorix/platform/search/internal/httpapi"
+	"github.com/aizorix/platform/search/internal/service"
+	"github.com/aizorix/platform/search/internal/store"
 )
 
 func main() {

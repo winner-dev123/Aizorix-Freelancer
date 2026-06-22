@@ -13,9 +13,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/notification/internal/service"
 	"github.com/aizorix/platform/notification/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

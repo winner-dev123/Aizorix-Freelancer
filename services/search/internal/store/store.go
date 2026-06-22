@@ -49,7 +49,7 @@ type SearchEngine interface {
 // Store holds the pool and implements the Postgres full-text fallback used by the stub.
 type Store struct{ pool *pgxpool.Pool }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store  { return &Store{pool: pool} }
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 // SearchProjects runs a Postgres full-text search over the projects table using the

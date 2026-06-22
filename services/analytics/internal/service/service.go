@@ -35,9 +35,9 @@ const contractCountEvent = "contract.activated"
 
 // funnelColumns maps a lifecycle event type to the funnel_daily column it advances.
 var funnelColumns = map[string]string{
-	"project.published":   "projects_published",
-	"proposal.submitted":  "proposals_submitted",
-	"contract.activated":  "contracts_activated",
+	"project.published":  "projects_published",
+	"proposal.submitted": "proposals_submitted",
+	"contract.activated": "contracts_activated",
 }
 
 // platformFeeBps is the assumed marketplace take rate used to split gross into fee/net when
@@ -101,19 +101,19 @@ type GMVTotal struct {
 // FunnelResult bundles the per-day funnel rows with computed conversion rates over the
 // summed totals of the range.
 type FunnelResult struct {
-	Rows                  []store.FunnelRow
-	ProjectsPublished     int64
-	ProposalsSubmitted    int64
-	ContractsActivated    int64
-	ProposalRate          float64 // proposals / projects
-	ActivationRate        float64 // contracts / proposals
+	Rows               []store.FunnelRow
+	ProjectsPublished  int64
+	ProposalsSubmitted int64
+	ContractsActivated int64
+	ProposalRate       float64 // proposals / projects
+	ActivationRate     float64 // contracts / proposals
 }
 
 // Summary is the top-line dashboard snapshot.
 type Summary struct {
-	TotalGMVCents   int64
-	TotalContracts  int64
-	TotalUsers      int64
+	TotalGMVCents  int64
+	TotalContracts int64
+	TotalUsers     int64
 }
 
 // ── query operations ──────────────────────────────────────────────────────────

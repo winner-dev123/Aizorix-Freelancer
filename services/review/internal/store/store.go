@@ -24,7 +24,7 @@ const uniqueViolationCode = "23505"
 
 type Store struct{ pool *pgxpool.Pool }
 
-func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
+func New(pool *pgxpool.Pool) *Store  { return &Store{pool: pool} }
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
 // Review is the read/write model for the reviews table.

@@ -1,19 +1,18 @@
 // Package httpapi is the REST transport for the analytics service. The query endpoints are
 // read-only rollup lookups; POST /v1/analytics/internal/ingest mirrors the Kafka consumer's
-// IngestEvent entry point for testing and manual backfill. Identity headers are accepted and
-// a principal helper is provided for parity, though the read endpoints are not RBAC-gated.
+// IngestEvent entry point for testing and manual backfill. The read endpoints are not
+// RBAC-gated (rollup lookups); a deployment can wrap them with a gateway permission check.
 package httpapi
 
 import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/aizorix/platform/analytics/internal/service"
-	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/aizorix/platform/analytics/internal/service"
 )
 
 // dateLayout is the YYYY-MM-DD format accepted on from/to query params.
@@ -34,8 +33,8 @@ func (a *API) Routes() http.Handler {
 	r.Handle("/metrics", a.metrics())
 	r.Route("/v1/analytics", func(r chi.Router) {
 		r.Get("/event-counts", a.eventCounts) // ?from=&to=&type=
-		r.Get("/gmv", a.gmv)                   // ?from=&to=&currency=
-		r.Get("/funnel", a.funnel)             // ?from=&to=
+		r.Get("/gmv", a.gmv)                  // ?from=&to=&currency=
+		r.Get("/funnel", a.funnel)            // ?from=&to=
 		r.Get("/summary", a.summary)
 		r.Post("/internal/ingest", a.ingest)
 	})
@@ -205,25 +204,6 @@ func queryPtr(r *http.Request, key string) *string {
 		return nil
 	}
 	return &v
-}
-
-// principal builds an rbac.Principal from the gateway identity headers. Provided for parity
-// with the other services; the analytics read endpoints are not gated, but a deployment
-// could wrap them with a permission check using this.
-func principal(r *http.Request) rbac.Principal {
-	var roles []string
-	if raw := r.Header.Get("X-User-Roles"); raw != "" {
-		for _, role := range strings.Split(raw, ",") {
-			if role = strings.TrimSpace(role); role != "" {
-				roles = append(roles, role)
-			}
-		}
-	}
-	return rbac.Principal{
-		UserID:      r.Header.Get("X-User-Id"),
-		Roles:       roles,
-		AccountType: r.Header.Get("X-Account-Type"),
-	}
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

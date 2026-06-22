@@ -11,12 +11,12 @@ import (
 )
 
 type Base struct {
-	Environment string // local|staging|production
-	LogLevel    string
-	HTTPPort    int
-	GRPCPort    int
-	DatabaseURL string
-	RedisAddr   string
+	Environment  string // local|staging|production
+	LogLevel     string
+	HTTPPort     int
+	GRPCPort     int
+	DatabaseURL  string
+	RedisAddr    string
 	KafkaBrokers string
 	OTELEndpoint string
 }

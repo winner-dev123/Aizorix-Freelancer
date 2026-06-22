@@ -25,9 +25,9 @@ func (f *fakeTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.Comm
 	return pgconn.NewCommandTag("INSERT 0 1"), nil
 }
 
-func (f *fakeTx) Begin(ctx context.Context) (pgx.Tx, error)         { panic("unused") }
-func (f *fakeTx) Commit(ctx context.Context) error                  { panic("unused") }
-func (f *fakeTx) Rollback(ctx context.Context) error                { panic("unused") }
+func (f *fakeTx) Begin(ctx context.Context) (pgx.Tx, error) { panic("unused") }
+func (f *fakeTx) Commit(ctx context.Context) error          { panic("unused") }
+func (f *fakeTx) Rollback(ctx context.Context) error        { panic("unused") }
 func (f *fakeTx) CopyFrom(ctx context.Context, t pgx.Identifier, c []string, s pgx.CopyFromSource) (int64, error) {
 	panic("unused")
 }
@@ -57,7 +57,7 @@ func TestWriteLegsBalanced(t *testing.T) {
 		amounts []int64
 	}{
 		{"two_leg_balanced", []int64{-1000, 1000}},
-		{"three_leg_balanced", []int64{-1000, 900, 100}},     // escrow split w/ fee
+		{"three_leg_balanced", []int64{-1000, 900, 100}}, // escrow split w/ fee
 		{"all_zero", []int64{0, 0}},
 	}
 	for _, tc := range cases {

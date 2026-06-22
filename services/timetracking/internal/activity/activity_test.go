@@ -78,7 +78,7 @@ func TestComputeGradedBilling(t *testing.T) {
 	var busy []Sample
 	for i := 0; i < 10; i++ {
 		busy = append(busy, Sample{
-			At: start.Add(time.Duration(i) * time.Minute),
+			At:            start.Add(time.Duration(i) * time.Minute),
 			KeyboardCount: 45 + i, MouseCount: 25, MouseDistance: 2000 + i*100,
 		})
 	}

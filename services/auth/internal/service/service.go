@@ -11,11 +11,12 @@ import (
 	"errors"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aizorix/platform/auth/internal/store"
 	"github.com/aizorix/platform/pkg/crypto"
 	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/aizorix/platform/pkg/token"
-	"github.com/jackc/pgx/v5"
 )
 
 var (

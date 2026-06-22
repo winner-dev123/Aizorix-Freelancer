@@ -10,9 +10,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aizorix/platform/escrow/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
-	"github.com/jackc/pgx/v5"
 )
 
 // ErrInsufficientFunds is re-exported from the store for the transport layer to map.

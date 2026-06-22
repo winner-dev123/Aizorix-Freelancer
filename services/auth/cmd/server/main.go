@@ -109,7 +109,7 @@ func loadSigningKey(pemPath, env string, logger *slog.Logger) (*ecdsa.PrivateKey
 		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 		return k, "dev-ephemeral", err
 	}
-	data, err := os.ReadFile(pemPath)
+	data, err := os.ReadFile(pemPath) // #nosec G304 -- path is operator-provided config (JWT_ACCESS_PRIVATE_KEY_PEM), not user input
 	if err != nil {
 		return nil, "", err
 	}

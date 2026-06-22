@@ -81,7 +81,7 @@ func (c *Consumer) WithDLQ(dlq *Producer, maxRetries int) *Consumer {
 
 // Run blocks until ctx is cancelled, dispatching each message to handler.
 func (c *Consumer) Run(ctx context.Context, handler HandlerFunc) error {
-	defer c.r.Close()
+	defer func() { _ = c.r.Close() }()
 	for {
 		km, err := c.r.FetchMessage(ctx)
 		if err != nil {
@@ -146,7 +146,7 @@ func (c *Consumer) toDLQ(ctx context.Context, m Message, cause error) error {
 		"event-id":       m.EventID,
 		"event-type":     m.EventType,
 		"original-topic": m.Topic,
-		"consumer-group":  c.group,
+		"consumer-group": c.group,
 		"error":          cause.Error(),
 	}
 	for k, v := range m.Headers {

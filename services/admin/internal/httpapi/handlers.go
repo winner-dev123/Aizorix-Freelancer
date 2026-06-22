@@ -16,10 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/admin/internal/service"
 	"github.com/aizorix/platform/admin/internal/store"
 	"github.com/aizorix/platform/pkg/rbac"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

@@ -17,10 +17,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/fraud/internal/service"
 	"github.com/aizorix/platform/fraud/internal/store"
 	"github.com/aizorix/platform/pkg/rbac"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

@@ -6,10 +6,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/aizorix/platform/review/internal/contractparties"
 	"github.com/aizorix/platform/review/internal/store"
-	"github.com/aizorix/platform/pkg/outbox"
-	"github.com/jackc/pgx/v5"
 )
 
 var (

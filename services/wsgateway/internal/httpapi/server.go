@@ -10,10 +10,11 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gorilla/websocket"
+
 	"github.com/aizorix/platform/wsgateway/internal/auth"
 	"github.com/aizorix/platform/wsgateway/internal/config"
 	"github.com/aizorix/platform/wsgateway/internal/hub"
-	"github.com/gorilla/websocket"
 )
 
 var errNoToken = errors.New("wsgateway: no token presented")

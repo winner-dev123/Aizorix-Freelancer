@@ -15,12 +15,12 @@ func TestDeriveContractTerms(t *testing.T) {
 	const client, freelancer, project = "client-1", "freelancer-9", "project-7"
 	base := func() CreateInput {
 		return CreateInput{
-			ProposalID:   "prop-1",
-			ProjectID:    "ATTACKER-PROJECT",   // should be overridden by the proposal's
-			ClientID:     client,               // must equal the project owner
-			FreelancerID: "ATTACKER-FREELANCER", // should be overridden by the proposal's
-			BudgetType:   "fixed",
-			PlatformFeeBps: 0,                   // attacker tries a zero fee; must be forced to 1000
+			ProposalID:     "prop-1",
+			ProjectID:      "ATTACKER-PROJECT",    // should be overridden by the proposal's
+			ClientID:       client,                // must equal the project owner
+			FreelancerID:   "ATTACKER-FREELANCER", // should be overridden by the proposal's
+			BudgetType:     "fixed",
+			PlatformFeeBps: 0, // attacker tries a zero fee; must be forced to 1000
 			Milestones: []store.MilestoneInput{
 				{Seq: 1, Title: "a", AmountCents: 6000},
 				{Seq: 2, Title: "b", AmountCents: 4000},

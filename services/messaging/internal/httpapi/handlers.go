@@ -13,9 +13,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/messaging/internal/service"
 	"github.com/aizorix/platform/messaging/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

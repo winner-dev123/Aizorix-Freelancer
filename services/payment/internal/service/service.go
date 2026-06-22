@@ -15,9 +15,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aizorix/platform/payment/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
-	"github.com/jackc/pgx/v5"
 )
 
 // ErrInvalidSignature is returned when a webhook fails HMAC verification.

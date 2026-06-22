@@ -8,9 +8,10 @@ import (
 	"context"
 	"errors"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/aizorix/platform/fraud/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
-	"github.com/jackc/pgx/v5"
 )
 
 // Tunables for the weighted-sum-v1 model.

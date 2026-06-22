@@ -17,9 +17,9 @@ import (
 	"log/slog"
 	"sync"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	opensearch "github.com/opensearch-project/opensearch-go/v2"
 	"github.com/opensearch-project/opensearch-go/v2/opensearchapi"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // OpenSearch is the production SearchEngine. It talks to a real OpenSearch cluster via the
@@ -74,12 +74,12 @@ var indexMappings = map[string]map[string]any{
 	"freelancers": {
 		"mappings": map[string]any{
 			"properties": map[string]any{
-				"headline":  map[string]any{"type": "text"},
-				"bio":       map[string]any{"type": "text"},
-				"skills":    map[string]any{"type": "keyword"},
-				"rate":      map[string]any{"type": "long"},
+				"headline":   map[string]any{"type": "text"},
+				"bio":        map[string]any{"type": "text"},
+				"skills":     map[string]any{"type": "keyword"},
+				"rate":       map[string]any{"type": "long"},
 				"rate_cents": map[string]any{"type": "long"},
-				"user_id":   map[string]any{"type": "keyword"},
+				"user_id":    map[string]any{"type": "keyword"},
 			},
 		},
 	},

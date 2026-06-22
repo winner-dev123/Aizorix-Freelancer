@@ -25,15 +25,15 @@ func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 // ── domain types ────────────────────────────────────────────────────────────
 
 type Proposal struct {
-	ID                   string
-	ProjectID            string
-	FreelancerID         string
-	CoverLetter          string
-	BidAmountCents       int64
-	Currency             string
+	ID                    string
+	ProjectID             string
+	FreelancerID          string
+	CoverLetter           string
+	BidAmountCents        int64
+	Currency              string
 	EstimatedDurationDays *int // nullable
-	Status               string
-	ConnectsSpent        int
+	Status                string
+	ConnectsSpent         int
 }
 
 type Milestone struct {

@@ -9,8 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aizorix/platform/auth/internal/service"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/aizorix/platform/auth/internal/service"
 )
 
 type API struct {
@@ -204,6 +205,8 @@ const refreshCookieName = "aizorix_refresh"
 // it in JS) and also returns the token bundle in the body for non-browser clients (the
 // desktop tracker stores the refresh token in the OS keychain).
 func (a *API) writeTokens(w http.ResponseWriter, status int, t *service.Tokens) {
+	// #nosec G124 -- Secure is intentionally environment-conditional: browsers refuse Secure
+	// cookies over http://localhost, so it is false in dev and true in production (see cookieSecure).
 	http.SetCookie(w, &http.Cookie{
 		Name:     refreshCookieName,
 		Value:    t.RefreshToken,
@@ -217,6 +220,7 @@ func (a *API) writeTokens(w http.ResponseWriter, status int, t *service.Tokens) 
 }
 
 func (a *API) clearRefreshCookie(w http.ResponseWriter) {
+	// #nosec G124 -- Secure mirrors writeTokens: env-conditional (false on http://localhost in dev).
 	http.SetCookie(w, &http.Cookie{
 		Name: refreshCookieName, Value: "", Path: "/",
 		HttpOnly: true, Secure: a.cookieSecure, SameSite: http.SameSiteLaxMode, MaxAge: -1,

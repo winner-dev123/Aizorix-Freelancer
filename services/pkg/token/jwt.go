@@ -19,12 +19,12 @@ import (
 // Claims is the access-token body. Keep it small — it is sent on every request.
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID            string   `json:"uid"`
-	SessionID         string   `json:"sid"`
-	Roles             []string `json:"roles"`
-	Permissions       []string `json:"perms,omitempty"`
-	ResidencyCountry  string   `json:"rc,omitempty"`
-	AccountType       string   `json:"act,omitempty"`
+	UserID           string   `json:"uid"`
+	SessionID        string   `json:"sid"`
+	Roles            []string `json:"roles"`
+	Permissions      []string `json:"perms,omitempty"`
+	ResidencyCountry string   `json:"rc,omitempty"`
+	AccountType      string   `json:"act,omitempty"`
 }
 
 // Issuer signs access tokens with the current private key. `kid` is embedded so verifiers

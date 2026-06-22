@@ -8,9 +8,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/aizorix/platform/proposal/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/aizorix/platform/pkg/rbac"
+	"github.com/aizorix/platform/proposal/internal/store"
 )
 
 var (

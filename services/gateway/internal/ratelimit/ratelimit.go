@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aizorix/platform/gateway/internal/auth"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/aizorix/platform/gateway/internal/auth"
 )
 
 // tokenBucket is a classic refill-on-read token bucket. Each key stores the current

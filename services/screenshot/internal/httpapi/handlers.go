@@ -9,9 +9,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/screenshot/internal/service"
 	"github.com/aizorix/platform/screenshot/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct{ svc *service.Service }

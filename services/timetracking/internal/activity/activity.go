@@ -4,12 +4,13 @@
 //
 // Definitions
 // -----------
-//   slice            A fixed billing/screenshot window, default 600s (10 min). The platform
-//                    captures one screenshot per slice and bills in slice units.
-//   sample           A short measurement window inside a slice, default 60s, over which the
-//                    tracker reports keyboard count, mouse count, and mouse travel.
-//   active sample    A sample with input above the noise floor AND not classified idle.
-//   idle             A continuous span with no input for >= IdleThreshold (default 300s).
+//
+//	slice            A fixed billing/screenshot window, default 600s (10 min). The platform
+//	                 captures one screenshot per slice and bills in slice units.
+//	sample           A short measurement window inside a slice, default 60s, over which the
+//	                 tracker reports keyboard count, mouse count, and mouse travel.
+//	active sample    A sample with input above the noise floor AND not classified idle.
+//	idle             A continuous span with no input for >= IdleThreshold (default 300s).
 //
 // Activity percentage
 // -------------------
@@ -17,11 +18,11 @@
 // 100%). We instead score each sample on input *intensity* with diminishing returns, clamp
 // it, subtract idle time, and average across the slice:
 //
-//   intensity(sample) = min(1, w_k * f(kb) + w_m * f(mouse) + w_d * f(dist))
-//       where f(x) = log1p(x) / log1p(saturate_x)   // diminishing returns, saturates at "busy"
-//   billable(bucket)  = window * clamp((intensity - ActiveFloor)/(FullActiveAt - ActiveFloor), 0, 1)
-//       graded, NOT all-or-nothing: trivial input bills a few seconds, sustained input the full window
-//   activity_pct      = 100 * (sum of billable seconds) / (slice_seconds - excused_idle)
+//	intensity(sample) = min(1, w_k * f(kb) + w_m * f(mouse) + w_d * f(dist))
+//	    where f(x) = log1p(x) / log1p(saturate_x)   // diminishing returns, saturates at "busy"
+//	billable(bucket)  = window * clamp((intensity - ActiveFloor)/(FullActiveAt - ActiveFloor), 0, 1)
+//	    graded, NOT all-or-nothing: trivial input bills a few seconds, sustained input the full window
+//	activity_pct      = 100 * (sum of billable seconds) / (slice_seconds - excused_idle)
 //
 // excused_idle covers legitimately non-input work (reading, calls) only up to a cap so it
 // can't be abused; beyond the cap, idle counts against activity. Manual time and screenshots
@@ -84,11 +85,11 @@ type Sample struct {
 
 // SliceResult is the computed, billable summary for one slice.
 type SliceResult struct {
-	ActivityPct   int  // 0..100
+	ActivityPct   int // 0..100
 	ActiveSeconds int
 	IdleSeconds   int
 	// Signals forwarded to the fraud service (not used for billing directly).
-	Suspicious    bool
+	Suspicious     bool
 	SuspectReasons []string
 }
 
@@ -244,8 +245,18 @@ func mouseOnly(samples []Sample) bool {
 	return keys == 0 && mouse > 0
 }
 
-func minInt(a, b int) int { if a < b { return a }; return b }
-func maxInt(a, b int) int { if a > b { return a }; return b }
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 func clamp(v, lo, hi int) int {
 	if v < lo {
 		return lo

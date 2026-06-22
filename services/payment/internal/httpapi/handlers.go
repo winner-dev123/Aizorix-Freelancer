@@ -10,9 +10,10 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/aizorix/platform/payment/internal/service"
 	"github.com/aizorix/platform/payment/internal/store"
-	"github.com/go-chi/chi/v5"
 )
 
 type API struct {

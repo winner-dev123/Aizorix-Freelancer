@@ -15,11 +15,13 @@ on:
     paths:
       - "services/**"
       - "go.work"
+      - ".golangci.yml"
       - ".github/workflows/ci-backend.yml"
   pull_request:
     paths:
       - "services/**"
       - "go.work"
+      - ".golangci.yml"
       - ".github/workflows/ci-backend.yml"
 
 # Cancel superseded runs on the same ref to save runner minutes.
@@ -33,7 +35,7 @@ permissions:
 env:
   # Modules declare `go 1.25.0`; the runner Go must be >= that or builds fail.
   GO_VERSION: "1.25"
-  GOLANGCI_LINT_VERSION: "v1.59.1"
+  GOLANGCI_LINT_VERSION: "v2.12.2"
 
 jobs:
   # ── 1. Work out which service modules actually need CI ──────────────
@@ -125,7 +127,7 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v8 # v8 supports golangci-lint v2 (Go 1.25 compatible)
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: services/${{ matrix.service }}
