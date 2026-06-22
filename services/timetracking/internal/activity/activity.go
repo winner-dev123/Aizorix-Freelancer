@@ -19,8 +19,9 @@
 //
 //   intensity(sample) = min(1, w_k * f(kb) + w_m * f(mouse) + w_d * f(dist))
 //       where f(x) = log1p(x) / log1p(saturate_x)   // diminishing returns, saturates at "busy"
-//   sample_active = intensity >= ActiveFloor  (and the sample is not within an idle span)
-//   activity_pct  = 100 * (sum of active sample seconds) / (slice_seconds - excused_idle)
+//   billable(bucket)  = window * clamp((intensity - ActiveFloor)/(FullActiveAt - ActiveFloor), 0, 1)
+//       graded, NOT all-or-nothing: trivial input bills a few seconds, sustained input the full window
+//   activity_pct      = 100 * (sum of billable seconds) / (slice_seconds - excused_idle)
 //
 // excused_idle covers legitimately non-input work (reading, calls) only up to a cap so it
 // can't be abused; beyond the cap, idle counts against activity. Manual time and screenshots
@@ -45,6 +46,7 @@ type Params struct {
 	SaturateMouse  float64 // mouse events per sample considered busy, default 90
 	SaturateDist   float64 // mouse pixels per sample considered busy, default 8000
 	ActiveFloor    float64 // intensity below this is "present but not working", default 0.08
+	FullActiveAt   float64 // intensity at/above which a bucket bills its FULL window, default 0.5
 	ExcusedIdleCap float64 // fraction of slice idle that doesn't reduce activity, default 0.25
 }
 
@@ -53,8 +55,23 @@ func DefaultParams() Params {
 		SliceSeconds: 600, SampleSeconds: 60, IdleThreshold: 300,
 		WeightKeyboard: 0.5, WeightMouse: 0.3, WeightDistance: 0.2,
 		SaturateKB: 120, SaturateMouse: 90, SaturateDist: 8000,
-		ActiveFloor: 0.08, ExcusedIdleCap: 0.25,
+		ActiveFloor: 0.08, FullActiveAt: 0.5, ExcusedIdleCap: 0.25,
 	}
+}
+
+// billableFraction grades how much of a sample window is billable by its input intensity:
+// 0 below ActiveFloor (present but not working), ramping linearly to 1.0 at FullActiveAt
+// (genuinely busy). This is what stops a single keystroke per minute from billing the whole
+// minute — trivial input bills a few seconds; only real, sustained input bills the full window.
+func (p Params) billableFraction(intensity float64) float64 {
+	if intensity < p.ActiveFloor {
+		return 0
+	}
+	span := p.FullActiveAt - p.ActiveFloor
+	if span <= 0 {
+		return 1
+	}
+	return math.Min(1, (intensity-p.ActiveFloor)/span)
 }
 
 // Sample is one measurement window reported by the tracker.
@@ -96,7 +113,7 @@ func (p Params) Compute(samples []Sample, sliceStart, sliceEnd time.Time) SliceR
 	if total <= 0 {
 		return SliceResult{}
 	}
-	activeSeconds := 0
+	var activeAcc float64 // graded billable seconds (rounded at the end)
 	idleSeconds := 0
 	var reasons []string
 
@@ -115,16 +132,27 @@ func (p Params) Compute(samples []Sample, sliceStart, sliceEnd time.Time) SliceR
 		}
 		intensities = append(intensities, intensity)
 
-		if intensity >= p.ActiveFloor {
-			activeSeconds += seg
+		if frac := p.billableFraction(intensity); frac > 0 {
+			// Bill PROPORTIONALLY to intensity, not all-or-nothing: a barely-above-floor
+			// bucket bills a few seconds, a genuinely busy one bills the full window.
+			activeAcc += float64(seg) * frac
 			consecutiveIdle = 0
 		} else {
+			// Below the floor = no input. Once a continuous gap reaches IdleThreshold, count
+			// the WHOLE span as idle (including the seconds before it crossed the threshold),
+			// not just the segments after — otherwise the first 300s of every gap is invisible.
+			prev := consecutiveIdle
 			consecutiveIdle += seg
 			if consecutiveIdle >= p.IdleThreshold {
-				idleSeconds += seg
+				if prev < p.IdleThreshold {
+					idleSeconds += consecutiveIdle // retroactively include the pre-threshold span
+				} else {
+					idleSeconds += seg
+				}
 			}
 		}
 	}
+	activeSeconds := int(math.Round(activeAcc))
 
 	// Excused idle: allow up to a cap of idle without penalty (reading/calls).
 	excused := int(float64(total) * p.ExcusedIdleCap)

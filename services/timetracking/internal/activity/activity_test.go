@@ -58,6 +58,53 @@ func TestComputeDetectsMacro(t *testing.T) {
 	}
 }
 
+func TestComputeGradedBilling(t *testing.T) {
+	p := DefaultParams()
+	start := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+
+	// Trivial input — 2 keystrokes per minute. It clears the ActiveFloor but must NOT bill the
+	// full minute (that was the M6 inflation hole).
+	var trivial []Sample
+	for i := 0; i < 10; i++ {
+		trivial = append(trivial, Sample{At: start.Add(time.Duration(i) * time.Minute), KeyboardCount: 2})
+	}
+	rt := p.Compute(trivial, start, end)
+	if rt.ActiveSeconds >= 120 {
+		t.Fatalf("trivial 2-keystroke/min input must bill far less than full; got %ds of 600", rt.ActiveSeconds)
+	}
+
+	// Genuinely busy — sustained real input across the slice. Should bill ~the full window.
+	var busy []Sample
+	for i := 0; i < 10; i++ {
+		busy = append(busy, Sample{
+			At: start.Add(time.Duration(i) * time.Minute),
+			KeyboardCount: 45 + i, MouseCount: 25, MouseDistance: 2000 + i*100,
+		})
+	}
+	rb := p.Compute(busy, start, end)
+	if rb.ActiveSeconds < 540 {
+		t.Fatalf("sustained busy input should bill ~full; got %ds of 600", rb.ActiveSeconds)
+	}
+	if rt.ActiveSeconds >= rb.ActiveSeconds {
+		t.Fatalf("trivial (%ds) must bill strictly less than busy (%ds)", rt.ActiveSeconds, rb.ActiveSeconds)
+	}
+}
+
+func TestComputeIdleSpanIncludesPreThreshold(t *testing.T) {
+	p := DefaultParams()
+	start := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+	// Only the first minute has input; the following 9 minutes (540s) are one idle span.
+	samples := []Sample{{At: start, KeyboardCount: 60, MouseCount: 40, MouseDistance: 3000}}
+	r := p.Compute(samples, start, end)
+	// The WHOLE 540s span must register as idle — not just the 240s after the 300s threshold
+	// was crossed (the M5 under-count).
+	if r.IdleSeconds != 540 {
+		t.Fatalf("idle span should be the full 540s, got %ds", r.IdleSeconds)
+	}
+}
+
 func TestComputeIdle(t *testing.T) {
 	p := DefaultParams()
 	start := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)

@@ -125,6 +125,8 @@ proposal. **13 more confirmed bugs fixed** (5 critical, 6 high, 1 medium, 1 low)
 | 32 | HIGH | timetracking | `StartSession` trusted a client-supplied `contract_id`. Now requires the caller be the contract's freelancer. |
 | 33 | MED | proposal | `GET /v1/proposals?project_id=` leaked competitors' bids. Now restricted to the project owner. |
 | 34 | LOW | timetracking | Dead (accepted-but-ignored) `idempotency_key`. Removed. |
+| 35 | MED | timetracking | **Billing inflation:** a sample bucket billed its FULL minute if intensity merely cleared the 0.08 floor (≈2 keystrokes/min → a full billed minute). Billable seconds are now **graded by intensity** (0 below the floor, ramping to full only at genuinely-busy input). Unit-tested. |
+| 36 | MED | timetracking | Idle metric under-reported: only the seconds AFTER the 300s threshold were recorded as idle, hiding the first 300s of every gap. The whole idle span is now counted once it qualifies. Unit-tested. |
 
 Verified **CLEAN** by this wave (just as important): **admin** RBAC + atomic audit logging,
 **screenshot** decrypt-on-read authorization + device-signature verification, **contract**
@@ -132,6 +134,10 @@ money-path authz (fund/submit/approve/dispute), **project/proposal-write/user** 
 the double-entry **ledger** math + dedupe + idempotency, **JWT** verification, and the **fraud**
 scoring math. (Note: review R3 — premature publish via a raw `count>=2` — is closed in practice
 by #26, since only the two real parties can now review a contract.)
+
+> The graded-billing change (#35) post-dates the demo run recorded in flow #2 above (activity
+> 90% / \$63 under the old all-or-nothing rule). Genuinely-busy buckets still bill in full, so a
+> re-run is at most marginally more conservative — only low-effort slices bill less.
 
 ## Why this matters
 

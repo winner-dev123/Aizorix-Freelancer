@@ -9,7 +9,7 @@ billing pipeline with fraud detection.
 > driven live against real infrastructure (Postgres, Redis, MinIO/S3, Redpanda/Kafka) — identity,
 > verified-hourly-work → escrow payout, the encrypted screenshot pipeline, the event backbone,
 > and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and two
-> adversarial review waves found **25 more** — **34 total, 8 critical** (money-safety, privilege
+> adversarial review waves found **27 more** — **36 total, 8 critical** (money-safety, privilege
 > escalation, cross-tenant data access, auth, data-integrity). All fixed; the highest-stakes ones
 > pinned by regression tests. Each was in code that compiled and passed its unit tests.
 >
