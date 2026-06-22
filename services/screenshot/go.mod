@@ -4,8 +4,8 @@ go 1.25.0
 
 require (
 	github.com/aizorix/platform/pkg v0.0.0
-	github.com/go-chi/chi/v5 v5.0.12
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/go-chi/chi/v5 v5.3.0
+	github.com/jackc/pgx/v5 v5.10.0
 	github.com/minio/minio-go/v7 v7.2.0
 )
 
