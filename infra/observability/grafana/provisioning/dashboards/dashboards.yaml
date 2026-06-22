@@ -1,0 +1,16 @@
+# Grafana dashboard provider — loads every JSON dashboard committed under
+# grafana/dashboards/ on startup and keeps them in sync from disk.
+
+apiVersion: 1
+
+providers:
+  - name: aizorix
+    orgId: 1
+    folder: Aizorix
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: false # dashboards are code; edit the JSON, not the UI
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: true

@@ -1,0 +1,68 @@
+# Production environment overlay. Composes all service overlays and finalises the
+# environment-specific placeholders (account id, ENVIRONMENT value, Secrets Manager prefix,
+# container registry/tag) that the service overlays left as literals.
+#
+# Apply: kubectl apply -k infra/k8s/overlays/production
+# (Argo CD points an Application at this path — see infra/k8s/platform.)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aizorix
+
+resources:
+  - namespace.yaml
+  - ../../services/auth
+  - ../../services/screenshot
+  # As more services are scaffolded, add their overlays here:
+  # - ../../services/user
+  # - ../../services/project
+  # - ... etc.
+
+# Pin images to immutable digests/tags in prod (CI rewrites the tag on release).
+images:
+  - name: REGISTRY/aizorix/auth
+    newName: 111122223333.dkr.ecr.us-east-1.amazonaws.com/aizorix/auth
+    newTag: "1.0.0"
+  - name: REGISTRY/aizorix/screenshot
+    newName: 111122223333.dkr.ecr.us-east-1.amazonaws.com/aizorix/screenshot
+    newTag: "1.0.0"
+
+# Substitute the IRSA account id, ENVIRONMENT, and Secrets Manager prefix placeholders.
+# (Per-SA patches inject the concrete ARN since JSON6902 values aren't string-templated.)
+patches:
+  - target:
+      kind: ServiceAccount
+      name: auth
+    patch: |
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::111122223333:role/aizorix-production-irsa-auth
+  - target:
+      kind: ServiceAccount
+      name: screenshot
+    patch: |
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::111122223333:role/aizorix-production-irsa-screenshot
+  # ENVIRONMENT env var on every Deployment.
+  - target:
+      kind: Deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: production
+  # ExternalSecret prefixes: SECRET_PREFIX -> aizorix-production.
+  - target:
+      kind: ExternalSecret
+      name: auth-config
+    patch: |
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: aizorix-production/auth/config
+  - target:
+      kind: ExternalSecret
+      name: screenshot-config
+    patch: |
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: aizorix-production/screenshot/config

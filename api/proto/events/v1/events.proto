@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package events.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// CloudEvent-style envelope for every message on the Kafka bus. Consumers dedupe
+// on `id`; ordering is per `partition_key`. `data` carries the typed payload as a
+// JSON Struct (services validate against the matching schema for `type`).
+message Envelope {
+  string id = 1;                  // unique event id (ULID/UUID) — dedupe key
+  string type = 2;               // "contract.activated", "screenshot.ingested", ...
+  string source = 3;             // producing service, e.g. "contract"
+  string subject = 4;            // aggregate id
+  string partition_key = 5;
+  google.protobuf.Timestamp time = 6;
+  string trace_id = 7;           // W3C traceparent for cross-service tracing
+  int32 schema_version = 8;
+  google.protobuf.Struct data = 9;
+}
+
+// ── Strongly-typed payloads (for documentation + optional schema-registry use) ──
+
+message UserRegistered {
+  string user_id = 1;
+  string account_type = 2;
+  string residency_country = 3;
+  google.protobuf.Timestamp registered_at = 4;
+}
+
+message ContractActivated {
+  string contract_id = 1;
+  string client_id = 2;
+  string freelancer_id = 3;
+  string budget_type = 4;        // "fixed" | "hourly"
+  google.protobuf.Timestamp activated_at = 5;
+}
+
+message ScreenshotIngested {
+  string screenshot_id = 1;
+  string contract_id = 2;
+  string session_id = 3;
+  string slice_id = 4;
+  int32 activity_pct = 5;
+  bytes phash = 6;
+  google.protobuf.Timestamp captured_at = 7;
+}
+
+message WorkSessionClosed {
+  string session_id = 1;
+  string contract_id = 2;
+  string billing_week = 3;
+  int32 billable_seconds = 4;
+  int32 avg_activity_pct = 5;
+}
+
+message BillingWeekReady {
+  string contract_id = 1;
+  string billing_week = 2;
+  int64 amount_cents = 3;
+  int32 billable_seconds = 4;
+}
+
+message PaymentCaptured {
+  string payment_id = 1;
+  string contract_id = 2;
+  int64 amount_cents = 3;
+  string currency = 4;
+}
+
+message ScreenshotFlagged {
+  string screenshot_id = 1;
+  string contract_id = 2;
+  double fraud_score = 3;
+  repeated string reason_codes = 4;
+}

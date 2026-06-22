@@ -1,0 +1,62 @@
+name: ci-integration
+
+# Runs the testcontainers-backed integration tests on a real Postgres (GitHub runners ship a
+# Docker daemon). These cover the flows that unit tests can't: auth refresh-rotation/reuse,
+# the escrow money-path invariants, and the contract milestone state machine + party authz —
+# the same paths driven live in scripts/demo.ps1.
+on:
+  pull_request:
+    paths:
+      - 'services/**'
+      - 'db/migrations/**'
+      - 'go.work'
+      - '.github/workflows/ci-integration.yml'
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [auth, escrow, contract]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: services/${{ matrix.service }}/go.sum
+
+      - name: Integration tests (${{ matrix.service }})
+        working-directory: services/${{ matrix.service }}
+        env:
+          GOWORK: off
+          # testcontainers reaper can be flaky on ephemeral CI; the runner is torn down anyway.
+          TESTCONTAINERS_RYUK_DISABLED: "true"
+        run: go test -tags=integration -race -count=1 ./...
+
+  # Fast unit pass across every module (no Docker) — the regression tests for the bugs found
+  # while running the stack live (jwks endpoint, escrow.events subscription, dedupe ordering).
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Unit tests (all modules)
+        env:
+          GOWORK: off
+        run: |
+          set -e
+          for d in services/pkg services/*/ ; do
+            if [ -f "$d/go.mod" ]; then
+              echo "== $d =="
+              (cd "$d" && go test ./...)
+            fi
+          done

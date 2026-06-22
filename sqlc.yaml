@@ -1,0 +1,30 @@
+# sqlc configuration — generates type-safe pgx/v5 Go from the migration schema
+# and the queries under db/queries.
+#
+#   make sqlc        # or: sqlc generate
+#
+# The schema is taken from the same migration files that build the dev database,
+# so generated structs always track the live schema.
+version: "2"
+sql:
+  - engine: "postgresql"
+    # Point at the .up.sql migrations for the schema (sqlc ignores .down.sql by
+    # default only if listed; here we glob up-migrations explicitly).
+    schema: "db/migrations"
+    queries: "db/queries"
+    gen:
+      go:
+        package: "db"
+        out: "db/generated"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_pointers_for_null_types: true
+        emit_interface: true
+        emit_exact_table_names: false
+        emit_empty_slices: true
+        overrides:
+          # Map Postgres money/uuid/jsonb to ergonomic Go types.
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "timestamptz"
+            go_type: "time.Time"

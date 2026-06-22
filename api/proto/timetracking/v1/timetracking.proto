@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package timetracking.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+
+// TimeTrackingService ingests activity from the desktop tracker, assembles work
+// sessions and 10-minute slices, computes activity %, and produces weekly billing.
+service TimeTrackingService {
+  // Called by the tracker when the freelancer starts tracking a contract.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse) {
+    option (google.api.http) = { post: "/v1/tracking/sessions" body: "*" };
+  }
+  // Periodic liveness while tracking (keeps session open, returns server time).
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // Submits a completed ~10-minute activity slice (batched; offline-safe).
+  rpc SubmitSlices(SubmitSlicesRequest) returns (SubmitSlicesResponse);
+  rpc StopSession(StopSessionRequest) returns (StopSessionResponse) {
+    option (google.api.http) = { post: "/v1/tracking/sessions/{session_id}/stop" body: "*" };
+  }
+  rpc GetTimesheet(GetTimesheetRequest) returns (GetTimesheetResponse) {
+    option (google.api.http) = { get: "/v1/tracking/contracts/{contract_id}/timesheet" };
+  }
+  rpc RequestManualTime(ManualTimeRequest) returns (ManualTimeResponse) {
+    option (google.api.http) = { post: "/v1/tracking/manual-time" body: "*" };
+  }
+}
+
+message StartSessionRequest {
+  string contract_id = 1;
+  string device_id = 2;
+  string timezone = 3;
+  google.protobuf.Timestamp client_started_at = 4;
+}
+message StartSessionResponse {
+  string session_id = 1;
+  string billing_week = 2;        // ISO week, e.g. "2026-W25"
+  int32 capture_interval_seconds = 3; // server-controlled (default 900 = 15 min)
+}
+
+message HeartbeatRequest { string session_id = 1; google.protobuf.Timestamp client_time = 2; }
+message HeartbeatResponse { google.protobuf.Timestamp server_time = 1; bool should_stop = 2; }
+
+// One slice = one billing/screenshot unit. The tracker buffers these locally
+// (SQLite) and submits in batches; SubmitSlices is idempotent on (session_id, slice_start).
+message ActivitySlice {
+  google.protobuf.Timestamp slice_start = 1;
+  google.protobuf.Timestamp slice_end = 2;
+  int32 keyboard_events = 3;
+  int32 mouse_events = 4;
+  int32 active_seconds = 5;
+  int32 activity_pct = 6;         // computed on-device, re-validated server-side
+  string active_app = 7;
+  string active_app_title = 8;
+  string browser_url_host = 9;    // host only by default (privacy)
+  string screenshot_id = 10;      // correlation id with the uploaded screenshot
+  bool is_idle = 11;
+}
+message SubmitSlicesRequest {
+  string session_id = 1;
+  repeated ActivitySlice slices = 2;
+  string idempotency_key = 3;
+}
+message SubmitSlicesResponse { int32 accepted = 1; repeated string rejected_slice_starts = 2; }
+
+message StopSessionRequest { string session_id = 1; google.protobuf.Timestamp client_stopped_at = 2; string memo = 3; }
+message StopSessionResponse {
+  int32 active_seconds = 1;
+  int32 idle_seconds = 2;
+  int32 avg_activity_pct = 3;
+}
+
+message GetTimesheetRequest { string contract_id = 1; string billing_week = 2; }
+message TimesheetEntry {
+  string day = 1;                 // YYYY-MM-DD
+  int32 billable_seconds = 2;
+  int32 avg_activity_pct = 3;
+}
+message GetTimesheetResponse {
+  string billing_week = 1;
+  int32 total_billable_seconds = 2;
+  int64 amount_cents = 3;
+  string status = 4;
+  repeated TimesheetEntry entries = 5;
+}
+
+message ManualTimeRequest {
+  string contract_id = 1;
+  google.protobuf.Timestamp slice_start = 2;
+  google.protobuf.Timestamp slice_end = 3;
+  string reason = 4;
+}
+message ManualTimeResponse { string request_id = 1; string status = 2; }

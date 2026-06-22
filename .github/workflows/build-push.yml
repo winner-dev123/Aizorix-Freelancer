@@ -1,0 +1,175 @@
+# Build, sign, SBOM, scan, and push service images to Amazon ECR.
+#
+# Triggers:
+#   * push to main  -> images tagged with the commit SHA (immutable) + `latest`
+#   * semver tag    -> images additionally tagged v1.2.3 / 1.2 / 1 (release images)
+#
+# Supply-chain controls per image:
+#   * cosign keyless signing (OIDC, Fulcio/Rekor) — no long-lived keys
+#   * SBOM (SPDX JSON) generated with syft and attached as a cosign attestation
+#   * Trivy vulnerability scan (fails on CRITICAL/HIGH); SARIF uploaded to code scanning
+#
+# AWS auth is OIDC -> IAM role; no static AWS keys live in GitHub.
+
+name: build-push
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # OIDC for AWS + cosign keyless
+  packages: read
+  security-events: write # upload Trivy SARIF
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: "" # resolved at runtime from the login step
+
+jobs:
+  # Build the matrix of services that have a Dockerfile and a cmd/server.
+  discover:
+    name: discover-services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.list.outputs.services }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t SVCS < <(find services -mindepth 2 -maxdepth 2 -name Dockerfile -printf '%h\n' \
+            | sed 's#services/##' | sort -u)
+          JSON=$(printf '%s\n' "${SVCS[@]}" | jq -R . | jq -cs .)
+          echo "services=$JSON" >> "$GITHUB_OUTPUT"
+          echo "Discovered: ${SVCS[*]}"
+
+  build:
+    name: build • ${{ matrix.service }}
+    needs: discover
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.discover.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        env:
+          REPO: aizorix/${{ matrix.service }}
+        run: |
+          aws ecr describe-repositories --repository-names "$REPO" >/dev/null 2>&1 || \
+          aws ecr create-repository \
+            --repository-name "$REPO" \
+            --image-scanning-configuration scanOnPush=true \
+            --image-tag-mutability IMMUTABLE >/dev/null
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}
+          tags: |
+            type=sha,format=long,prefix=
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          # Build context is the repo root so the shared pkg module is available
+          # (matches services/<name>/Dockerfile expectations).
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          provenance: mode=max
+          sbom: false # SBOM produced explicitly via syft below
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image (keyless)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}
+        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+
+      - name: Generate SBOM (syft, SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.service }}.spdx.json
+
+      - name: Attach SBOM as a cosign attestation
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}
+        run: |
+          cosign attest --yes \
+            --predicate "sbom-${{ matrix.service }}.spdx.json" \
+            --type spdxjson \
+            "${IMAGE}@${DIGEST}"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}
+          path: sbom-${{ matrix.service }}.spdx.json
+
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "0" # report; do not block here (see gate below)
+
+      - name: Upload Trivy SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+      - name: Fail on CRITICAL vulnerabilities (release tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

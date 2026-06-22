@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+package auth.v1;
+
+import "common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+
+// AuthService owns credentials, tokens, sessions, MFA, and OAuth. It is the only
+// service that handles passwords. Tokens are ES256 JWTs verified locally by other
+// services via the published JWKS (no per-request introspection on the hot path).
+service AuthService {
+  rpc Register(RegisterRequest) returns (AuthTokens) {
+    option (google.api.http) = { post: "/v1/auth/register" body: "*" };
+  }
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (google.api.http) = { post: "/v1/auth/login" body: "*" };
+  }
+  rpc RefreshToken(RefreshRequest) returns (AuthTokens) {
+    option (google.api.http) = { post: "/v1/auth/refresh" body: "*" };
+  }
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {
+    option (google.api.http) = { post: "/v1/auth/logout" body: "*" };
+  }
+  rpc VerifyEmail(VerifyEmailRequest) returns (VerifyEmailResponse) {
+    option (google.api.http) = { post: "/v1/auth/verify-email" body: "*" };
+  }
+  rpc EnrollMfa(EnrollMfaRequest) returns (EnrollMfaResponse) {
+    option (google.api.http) = { post: "/v1/auth/mfa/enroll" body: "*" };
+  }
+  rpc VerifyMfa(VerifyMfaRequest) returns (AuthTokens) {
+    option (google.api.http) = { post: "/v1/auth/mfa/verify" body: "*" };
+  }
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse) {
+    option (google.api.http) = { get: "/v1/auth/sessions" };
+  }
+  rpc RevokeSession(RevokeSessionRequest) returns (RevokeSessionResponse) {
+    option (google.api.http) = { post: "/v1/auth/sessions/{session_id}/revoke" body: "*" };
+  }
+
+  // Internal-only: services verify tokens locally, but admin tooling can introspect.
+  rpc Introspect(IntrospectRequest) returns (IntrospectResponse);
+  rpc GetJwks(GetJwksRequest) returns (GetJwksResponse) {
+    option (google.api.http) = { get: "/.well-known/jwks.json" };
+  }
+}
+
+message RegisterRequest {
+  string email = 1;
+  string password = 2;
+  common.v1.AccountType account_type = 3;
+  string residency_country = 4;
+  string locale = 5;
+  string device_fingerprint = 6;
+  // Required: user accepted ToS + (for freelancers) monitoring disclosure.
+  bool accepted_terms = 7;
+  bool accepted_monitoring_disclosure = 8;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+  string device_fingerprint = 3;
+}
+
+message LoginResponse {
+  // If MFA is required, tokens are empty and mfa_token must be exchanged via VerifyMfa.
+  AuthTokens tokens = 1;
+  bool mfa_required = 2;
+  string mfa_token = 3;            // short-lived, single-use
+  repeated string mfa_methods = 4; // e.g. ["totp","webauthn"]
+}
+
+message AuthTokens {
+  string access_token = 1;         // ES256 JWT, ~15 min TTL
+  string refresh_token = 2;        // opaque, rotated on every refresh
+  int64 access_expires_in = 3;     // seconds
+  string token_type = 4;           // "Bearer"
+  string user_id = 5;
+}
+
+message RefreshRequest { string refresh_token = 1; string device_fingerprint = 2; }
+message LogoutRequest { string refresh_token = 1; bool all_sessions = 2; }
+message LogoutResponse { bool success = 1; }
+
+message VerifyEmailRequest { string token = 1; }
+message VerifyEmailResponse { bool verified = 1; }
+
+message EnrollMfaRequest { string mfa_type = 1; }   // "totp" | "webauthn"
+message EnrollMfaResponse {
+  string factor_id = 1;
+  string otpauth_uri = 2;          // for TOTP QR provisioning
+  string secret = 3;               // shown once
+  repeated string backup_codes = 4;
+}
+message VerifyMfaRequest { string mfa_token = 1; string code = 2; string factor_id = 3; }
+
+message ListSessionsRequest {}
+message Session {
+  string id = 1;
+  string device_name = 2;
+  string ip = 3;
+  string user_agent = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp last_active_at = 6;
+  bool current = 7;
+}
+message ListSessionsResponse { repeated Session sessions = 1; }
+message RevokeSessionRequest { string session_id = 1; }
+message RevokeSessionResponse { bool success = 1; }
+
+message IntrospectRequest { string access_token = 1; }
+message IntrospectResponse {
+  bool active = 1;
+  common.v1.Principal principal = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message GetJwksRequest {}
+message GetJwksResponse { string jwks_json = 1; }

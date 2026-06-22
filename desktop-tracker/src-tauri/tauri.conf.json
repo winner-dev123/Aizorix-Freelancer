@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2.0.0",
+  "productName": "Aizorix Tracker",
+  "version": "1.0.0",
+  "identifier": "com.aizorix.tracker",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Aizorix Tracker",
+        "width": 420,
+        "height": 640,
+        "resizable": false,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' https://api.aizorix.com"
+    },
+    "trayIcon": {
+      "id": "main",
+      "tooltip": "Aizorix Tracker",
+      "menuOnLeftClick": false
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi", "nsis", "dmg", "appimage", "deb"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "embedBootstrapper" }
+    },
+    "macOS": {
+      "minimumSystemVersion": "11.0",
+      "entitlements": "entitlements.plist"
+    }
+  },
+  "plugins": {}
+}

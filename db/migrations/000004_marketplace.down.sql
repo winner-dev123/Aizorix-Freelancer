@@ -1,0 +1,10 @@
+BEGIN;
+DROP TABLE IF EXISTS proposal_answers;
+DROP TABLE IF EXISTS proposal_milestones;
+DROP TABLE IF EXISTS proposals;
+DROP TABLE IF EXISTS project_attachments;
+DROP TABLE IF EXISTS project_skills;
+DROP FUNCTION IF EXISTS projects_tsv();
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS project_categories;
+COMMIT;

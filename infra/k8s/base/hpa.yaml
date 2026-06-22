@@ -1,0 +1,42 @@
+# Horizontal Pod Autoscaler. Scales on CPU + memory by default; overlays for hot-path
+# services (auth, screenshot) can add custom/RPS metrics. Stabilization windows avoid
+# thrashing under bursty marketplace traffic.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: service
+  labels:
+    app: service
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 75
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 30
+    scaleDown:
+      stabilizationWindowSeconds: 300 # scale down slowly to absorb traffic dips
+      policies:
+        - type: Percent
+          value: 50
+          periodSeconds: 60

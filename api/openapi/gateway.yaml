@@ -1,0 +1,222 @@
+openapi: 3.1.0
+info:
+  title: Aizorix Public API
+  version: "1.0.0"
+  description: >
+    Public REST surface exposed by the API gateway. Internal service-to-service
+    traffic uses gRPC (see api/proto). Most paths are generated from proto
+    google.api.http annotations; REST-only surfaces (Stripe webhooks, file
+    uploads) are defined here explicitly. All endpoints require a Bearer JWT
+    unless marked `security: []`.
+servers:
+  - url: https://api.aizorix.com
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      properties:
+        code: { type: string, example: VALIDATION_FAILED }
+        message: { type: string }
+        fields:
+          type: object
+          additionalProperties: { type: string }
+    AuthTokens:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        access_expires_in: { type: integer }
+        token_type: { type: string, example: Bearer }
+        user_id: { type: string, format: uuid }
+    RegisterRequest:
+      type: object
+      required: [email, password, account_type, accepted_terms]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, format: password, minLength: 12 }
+        account_type: { type: string, enum: [client, freelancer] }
+        residency_country: { type: string, minLength: 2, maxLength: 2 }
+        accepted_terms: { type: boolean }
+        accepted_monitoring_disclosure: { type: boolean }
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string }
+        budget_type: { type: string, enum: [fixed, hourly] }
+        budget_min_cents: { type: integer, format: int64 }
+        budget_max_cents: { type: integer, format: int64 }
+        currency: { type: string }
+        status: { type: string }
+        skills: { type: array, items: { type: string } }
+
+paths:
+  /v1/auth/register:
+    post:
+      summary: Register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        "409": { description: Email already registered, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /v1/auth/login:
+    post:
+      summary: Password login (may require MFA step-up)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                device_fingerprint: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthTokens' }
+        "401": { description: Invalid credentials }
+        "423": { description: Account locked }
+
+  /v1/auth/me:
+    get:
+      summary: Resolve the authenticated identity
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_id: { type: string, format: uuid }
+                  email: { type: string, format: email }
+                  account_type: { type: string }
+                  roles: { type: array, items: { type: string } }
+                  email_verified: { type: boolean }
+                  mfa_enabled: { type: boolean }
+        "401": { description: Unauthenticated }
+
+  /v1/auth/logout:
+    post:
+      summary: Revoke the current session (or all sessions); clears the refresh cookie
+      responses:
+        "200": { description: OK }
+
+  /v1/projects:
+    get:
+      summary: Search/browse published projects (delegates to search service)
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: skills, in: query, schema: { type: array, items: { type: string } } }
+        - { name: budget_type, in: query, schema: { type: string, enum: [fixed, hourly] } }
+        - { name: min_budget, in: query, schema: { type: integer } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Project' } }
+                  next_cursor: { type: string }
+    post:
+      summary: Create a project (client only)
+      responses: { "201": { description: Created } }
+
+  /v1/projects/{id}:
+    get:
+      summary: Get a project
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: OK }, "404": { description: Not found } }
+
+  /v1/proposals:
+    get:
+      summary: List proposals for a project (client) — flat surface
+      parameters:
+        - { name: project_id, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string } }
+      responses: { "200": { description: OK } }
+    post:
+      summary: Submit a proposal (freelancer only); project_id is in the body
+      responses: { "201": { description: Created }, "402": { description: Insufficient connects }, "409": { description: Duplicate proposal } }
+
+  /v1/proposals/mine:
+    get:
+      summary: List the authenticated freelancer's proposals
+      responses: { "200": { description: OK } }
+
+  # Milestones are addressed by their GLOBAL id (not contract id + seq).
+  /v1/contracts/milestones/{milestoneId}/approve:
+    post:
+      summary: Approve a milestone and release escrow (contract client only)
+      parameters:
+        - { name: milestoneId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses: { "200": { description: Released }, "403": { description: Not the contract client }, "409": { description: Invalid milestone state } }
+
+  /v1/contracts/{id}/events:
+    get:
+      summary: Contract activity timeline (parties only)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses: { "200": { description: OK }, "403": { description: Not a party to the contract } }
+
+  /v1/tracking/sessions:
+    post:
+      summary: Start a work session (desktop tracker)
+      responses: { "201": { description: Created } }
+
+  /v1/screenshots:
+    get:
+      summary: List a contract's stored screenshots (contract parties + auditors)
+      parameters:
+        - { name: contract_id, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: OK }
+        "403": { description: Not a party to the contract }
+
+  /v1/screenshots/{id}:
+    get:
+      summary: Get an authorized, audited screenshot (signed URL + decryption material)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        "200": { description: OK }
+        "403": { description: Not a party to the contract }
+
+  /v1/payments/webhook/stripe:
+    post:
+      summary: Stripe webhook receiver (signature-verified, not JWT-authed)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object } }
+      responses:
+        "200": { description: Acknowledged }
+        "400": { description: Invalid signature }

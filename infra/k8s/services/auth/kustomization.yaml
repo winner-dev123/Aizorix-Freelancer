@@ -1,0 +1,131 @@
+# auth service overlay. Renames the generic base objects to "auth", sets the image, IRSA
+# role, replica floor, and resources, and adds an ExternalSecret that syncs the Secrets
+# Manager entry (aizorix-<env>/auth/config) into the k8s Secret "auth-config".
+#
+# The IRSA role-arn and ENVIRONMENT value carry the placeholder account/env and are finalised
+# by the per-ENV overlay (overlays/production|staging) which patches the literal strings.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aizorix
+
+resources:
+  - ../../base
+  - externalsecret.yaml
+
+# Metadata-only label (NOT a selector — the immutable Deployment/Service selector is the
+# `app:` key, which the patches below flip to "auth"). includeSelectors stays false so we
+# never mutate spec.selector via label injection.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: auth
+
+# Patch the generic "service" objects into "auth".
+patches:
+  - target:
+      kind: Deployment
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /metadata/labels/app
+        value: auth
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: auth
+      - op: replace
+        path: /spec/template/metadata/labels/app
+        value: auth
+      - op: replace
+        path: /spec/template/spec/serviceAccountName
+        value: auth
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: REGISTRY/aizorix/auth:latest
+      - op: replace
+        path: /spec/template/spec/containers/0/envFrom/0/secretRef/name
+        value: auth-config
+      # auth is latency-sensitive and central — give it more headroom + a higher floor.
+      - op: replace
+        path: /spec/replicas
+        value: 4
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "256Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+  - target:
+      kind: Service
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /metadata/labels/app
+        value: auth
+      - op: replace
+        path: /spec/selector/app
+        value: auth
+  - target:
+      kind: ServiceAccount
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::ACCOUNT_ID:role/aizorix-ENV-irsa-auth
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /spec/scaleTargetRef/name
+        value: auth
+      - op: replace
+        path: /spec/minReplicas
+        value: 4
+      - op: replace
+        path: /spec/maxReplicas
+        value: 30
+      - op: replace
+        path: /metadata/labels/app
+        value: auth
+  - target:
+      kind: PodDisruptionBudget
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /spec/selector/matchLabels/app
+        value: auth
+      - op: replace
+        path: /metadata/labels/app
+        value: auth
+  - target:
+      kind: NetworkPolicy
+      name: service
+    patch: |
+      - op: replace
+        path: /metadata/name
+        value: auth
+      - op: replace
+        path: /spec/podSelector/matchLabels/app
+        value: auth
+      - op: replace
+        path: /metadata/labels/app
+        value: auth

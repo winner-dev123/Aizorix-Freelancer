@@ -1,0 +1,87 @@
+# OpenTelemetry Collector config (referenced by docker-compose.yml at the repo
+# root: mounted to /etc/otel/config.yaml).
+#
+# Pipelines:
+#   traces  : OTLP in  -> batch/memory-limit/resource -> Tempo (OTLP) + span-metrics
+#   metrics : OTLP in (+ span-derived RED metrics) -> Prometheus exporter (:8889/metrics)
+#   logs    : OTLP in  -> batch -> debug (services ship logs via stdout->Promtail->Loki,
+#             but OTLP logs are accepted for any library that emits them)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Guard the collector against OOM under load.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+  # Stamp environment/cluster onto every signal.
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: ${env:ENVIRONMENT}
+        action: upsert
+      - key: k8s.cluster.name
+        value: aizorix-eks
+        action: upsert
+
+connectors:
+  # Derive RED metrics (calls_total, duration histogram) from spans so latency
+  # SLOs can be measured even for services that only emit traces.
+  spanmetrics:
+    histogram:
+      explicit:
+        buckets: [5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s]
+    dimensions:
+      - name: service.name
+      - name: http.route
+      - name: http.status_code
+    metrics_flush_interval: 15s
+
+exporters:
+  # Traces -> Tempo over OTLP.
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  # Metrics -> Prometheus scrape endpoint on :8889.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    namespace: otel
+    resource_to_telemetry_conversion:
+      enabled: true
+  debug:
+    verbosity: basic
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  # Collector self-telemetry exposed on :8888/metrics (scraped by Prometheus).
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/tempo, spanmetrics]
+    metrics:
+      receivers: [otlp, spanmetrics]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [debug]

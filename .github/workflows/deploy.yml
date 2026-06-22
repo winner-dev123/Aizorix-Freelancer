@@ -1,0 +1,149 @@
+# Reusable deployment workflow (GitOps).
+#
+# Order of operations for an environment:
+#   1. Run DB migrations (golang-migrate) as a one-shot job — backward-compatible
+#      migrations run BEFORE the new image rolls out (expand/contract pattern).
+#   2. Bump the kustomize image tag in the GitOps repo/overlay for the env.
+#   3. Trigger an Argo CD sync and wait for the app to become Healthy + Synced.
+#
+# This is `workflow_call`-only. The orchestrating release pipeline calls it twice:
+# staging (auto) then production (gated by the `production` GitHub Environment, which
+# carries required reviewers + wait timer).
+
+name: deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "Target environment (staging | production)"
+        required: true
+        type: string
+      image_tag:
+        description: "Immutable image tag to deploy (commit SHA or semver)"
+        required: true
+        type: string
+      services:
+        description: "JSON array of service names to deploy"
+        required: true
+        type: string
+      run_migrations:
+        description: "Run DB migrations before rollout"
+        required: false
+        default: true
+        type: boolean
+    secrets:
+      AWS_DEPLOY_ROLE_ARN:
+        required: true
+      ARGOCD_SERVER:
+        required: true
+      ARGOCD_AUTH_TOKEN:
+        required: true
+      DATABASE_URL:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  # ── 1. Expand-phase migrations (must be backward compatible) ────────
+  migrate:
+    name: db-migrate (${{ inputs.environment }})
+    if: ${{ inputs.run_migrations }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | tar xz
+          sudo mv migrate /usr/local/bin/migrate
+          migrate -version
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          migrate -path db/migrations -database "$DATABASE_URL" up
+          echo "Current version:"; migrate -path db/migrations -database "$DATABASE_URL" version
+
+  # ── 2 + 3. Bump image tags and sync via Argo CD ────────────────────
+  rollout:
+    name: rollout (${{ inputs.environment }})
+    needs: [migrate]
+    # Run even when migrations were skipped (needs.migrate is then "skipped").
+    if: ${{ always() && (needs.migrate.result == 'success' || needs.migrate.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    strategy:
+      matrix:
+        service: ${{ fromJson(inputs.services) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Resolve ECR registry
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Bump kustomize image tag
+        working-directory: infra/k8s/overlays/${{ inputs.environment }}
+        run: |
+          IMAGE="${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}"
+          kustomize edit set image "aizorix/${{ matrix.service }}=${IMAGE}:${{ inputs.image_tag }}"
+          echo "Set ${{ matrix.service }} -> ${IMAGE}:${{ inputs.image_tag }}"
+
+      - name: Commit & push GitOps change
+        # Argo CD watches infra/k8s; committing the new tag triggers reconciliation.
+        run: |
+          git config user.name "aizorix-ci[bot]"
+          git config user.email "ci@aizorix.dev"
+          git add infra/k8s/overlays/${{ inputs.environment }}/kustomization.yaml
+          if git diff --cached --quiet; then
+            echo "No image change to commit."
+          else
+            git commit -m "deploy(${{ inputs.environment }}): ${{ matrix.service }}=${{ inputs.image_tag }}"
+            git push
+          fi
+
+  sync:
+    name: argocd-sync (${{ inputs.environment }})
+    needs: [rollout]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Install Argo CD CLI
+        run: |
+          curl -fsSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+      - name: Sync and wait for healthy
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          APP="aizorix-${{ inputs.environment }}"
+          argocd app sync "$APP" --grpc-web --prune --timeout 300
+          argocd app wait "$APP" --grpc-web --health --sync --timeout 600
+          echo "::notice::$APP synced to ${{ inputs.image_tag }}"

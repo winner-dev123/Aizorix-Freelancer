@@ -1,0 +1,85 @@
+# Desktop tracker CI — Tauri (Rust) cross-platform.
+# The tracker captures encrypted screenshots and must build on all three desktop
+# OSes, so fmt/clippy/test run on a windows/macos/linux matrix.
+
+name: ci-tracker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "desktop-tracker/**"
+      - ".github/workflows/ci-tracker.yml"
+  pull_request:
+    paths:
+      - "desktop-tracker/**"
+      - ".github/workflows/ci-tracker.yml"
+
+concurrency:
+  group: ci-tracker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  # Tauri's Rust crate lives under src-tauri/.
+  TAURI_DIR: desktop-tracker/src-tauri
+
+jobs:
+  # fmt is OS-independent — run it once, fast, and fail early.
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        working-directory: ${{ env.TAURI_DIR }}
+        run: cargo fmt --all --check
+
+  test:
+    name: clippy • test (${{ matrix.os }})
+    needs: fmt
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+          - os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Tauri on Linux needs GTK/webkit/appindicator system libraries.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev build-essential curl wget file \
+            libssl-dev libxdo-dev
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ env.TAURI_DIR }}
+          key: ${{ matrix.os }}
+
+      - name: cargo clippy
+        working-directory: ${{ env.TAURI_DIR }}
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        working-directory: ${{ env.TAURI_DIR }}
+        run: cargo test --all-features

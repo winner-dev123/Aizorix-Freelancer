@@ -1,0 +1,78 @@
+# Recording rules — precompute the RED-style aggregates that dashboards and
+# multi-window burn-rate alerts read repeatedly. Pre-aggregating keeps the
+# alerting/eval path cheap and consistent.
+
+groups:
+  - name: aizorix.recording.http
+    interval: 30s
+    rules:
+      # Per-service request rate (all outcomes).
+      - record: service:http_requests:rate5m
+        expr: sum by (service) (rate(http_requests_total[5m]))
+
+      # Per-service error rate (5xx only — 4xx is client fault, not our SLI).
+      - record: service:http_requests_errors:rate5m
+        expr: sum by (service) (rate(http_requests_total{code=~"5.."}[5m]))
+
+      # Error ratio (fraction of requests failing). Guard against 0/0.
+      - record: service:http_errors:ratio5m
+        expr: |
+          service:http_requests_errors:rate5m
+            / clamp_min(service:http_requests:rate5m, 1e-9)
+
+      # 30m and longer windows used by burn-rate math.
+      - record: service:http_requests:rate30m
+        expr: sum by (service) (rate(http_requests_total[30m]))
+      - record: service:http_requests_errors:rate30m
+        expr: sum by (service) (rate(http_requests_total{code=~"5.."}[30m]))
+      - record: service:http_errors:ratio30m
+        expr: |
+          service:http_requests_errors:rate30m
+            / clamp_min(service:http_requests:rate30m, 1e-9)
+      - record: service:http_errors:ratio1h
+        expr: |
+          sum by (service) (rate(http_requests_total{code=~"5.."}[1h]))
+            / clamp_min(sum by (service) (rate(http_requests_total[1h])), 1e-9)
+      - record: service:http_errors:ratio6h
+        expr: |
+          sum by (service) (rate(http_requests_total{code=~"5.."}[6h]))
+            / clamp_min(sum by (service) (rate(http_requests_total[6h])), 1e-9)
+
+  - name: aizorix.recording.latency
+    interval: 30s
+    rules:
+      # p50 / p95 / p99 request latency per service from the histogram.
+      - record: service:http_request_duration_seconds:p50
+        expr: |
+          histogram_quantile(0.50,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:http_request_duration_seconds:p95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+      - record: service:http_request_duration_seconds:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (rate(http_request_duration_seconds_bucket[5m])))
+
+      # Latency SLI: fraction of requests served faster than the 500ms threshold.
+      # (Numerator uses the le="0.5" bucket; assumes that bucket boundary exists.)
+      - record: service:http_latency_slo:good_ratio5m
+        expr: |
+          sum by (service) (rate(http_request_duration_seconds_bucket{le="0.5"}[5m]))
+            / clamp_min(sum by (service) (rate(http_request_duration_seconds_count[5m])), 1e-9)
+
+  - name: aizorix.recording.domain
+    interval: 30s
+    rules:
+      # Screenshot ingest success ratio (tracker uploads).
+      - record: screenshot:ingest:success_ratio5m
+        expr: |
+          sum(rate(screenshot_ingest_total{result="success"}[5m]))
+            / clamp_min(sum(rate(screenshot_ingest_total[5m])), 1e-9)
+
+      # Payment capture success ratio.
+      - record: payment:capture:success_ratio5m
+        expr: |
+          sum(rate(payment_transactions_total{type="capture",status="succeeded"}[5m]))
+            / clamp_min(sum(rate(payment_transactions_total{type="capture"}[5m])), 1e-9)

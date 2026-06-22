@@ -1,0 +1,61 @@
+# Grafana datasource provisioning.
+# Wires Prometheus (metrics), Loki (logs), and Tempo (traces) together so a
+# single click jumps trace -> logs -> metrics. The `trace_id` log field and the
+# exemplar/trace links below provide the correlation.
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      # Exemplars carry trace_ids that link a metric spike to a Tempo trace.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+      # Turn the structured `trace_id` log field into a clickable link to Tempo.
+      derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Trace -> Logs: jump from a span to its log lines in Loki.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: -1h
+        spanEndTimeShift: 1h
+        filterByTraceID: true
+        tags: [{ key: service.name, value: service }]
+      # Trace -> Metrics: jump from a span to RED metrics for that service.
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags: [{ key: service.name, value: service }]
+        queries:
+          - name: "Request rate"
+            query: 'sum(rate(http_requests_total{service="$${__tags.service}"}[5m]))'
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

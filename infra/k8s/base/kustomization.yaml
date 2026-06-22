@@ -1,0 +1,24 @@
+# Reusable base for a generic Aizorix service. Overlays (per-service + per-env) patch
+# the name, image, replicas, env, and resources. The base encodes the "paved road":
+# non-root, read-only rootfs, IRSA-ready ServiceAccount, HPA, PDB, default-deny NetworkPolicy.
+#
+# Overlays MUST set the `app=<service>` label and the placeholder name "service" via the
+# nameSuffix/namePrefix + patches (see services/auth and services/screenshot).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aizorix
+
+# Common labels applied to every object; overlays add app.kubernetes.io/name per service.
+labels:
+  - includeSelectors: true
+    pairs:
+      app.kubernetes.io/part-of: aizorix
+
+resources:
+  - serviceaccount.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml

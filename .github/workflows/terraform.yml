@@ -1,0 +1,124 @@
+# Terraform CI/CD for infra/terraform.
+#
+#   PR   -> fmt check, init, validate, plan (plan posted as a PR comment)
+#   main -> apply, gated by the `production-infra` environment (required reviewers)
+#
+# AWS auth is OIDC -> IAM role. State lives in the S3 backend configured in versions.tf;
+# concrete bucket/key/table are passed via -backend-config secrets.
+
+name: terraform
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+  pull_request:
+    paths:
+      - "infra/terraform/**"
+      - ".github/workflows/terraform.yml"
+
+concurrency:
+  # Never run two applies against the same state at once.
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write # plan comment
+
+env:
+  TF_VERSION: "1.8.5"
+  AWS_REGION: us-east-1
+  WORKDIR: infra/terraform
+
+jobs:
+  plan:
+    name: fmt • validate • plan
+    runs-on: ubuntu-latest
+    environment: staging-infra
+    defaults:
+      run:
+        working-directory: ${{ env.WORKDIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=production/terraform.tfstate" \
+            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      - name: terraform plan
+        id: plan
+        run: |
+          terraform plan -no-color -input=false -out=tfplan | tee plan.txt
+          { echo "summary<<EOF"; tail -c 60000 plan.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `#### Terraform Plan 📖\n\`\`\`\n${{ steps.plan.outputs.summary }}\n\`\`\``;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            const mark = '#### Terraform Plan 📖';
+            const existing = comments.find(c => c.body.startsWith(mark));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner: context.repo.owner, repo: context.repo.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, body });
+            }
+
+  apply:
+    name: apply
+    needs: [plan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production-infra # required reviewers + wait timer enforce the gate
+    defaults:
+      run:
+        working-directory: ${{ env.WORKDIR }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=production/terraform.tfstate" \
+            -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
+
+      - name: terraform apply
+        run: terraform apply -auto-approve -input=false

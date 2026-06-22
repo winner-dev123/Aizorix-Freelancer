@@ -1,0 +1,10 @@
+BEGIN;
+DROP TABLE IF EXISTS reconciliation_runs;
+DROP TABLE IF EXISTS stripe_events;
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS withdrawals;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS escrow_allocations;
+DROP TABLE IF EXISTS escrow_accounts;
+DROP TABLE IF EXISTS payout_accounts;
+COMMIT;

@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Shared types used across services. Money is always represented as minor units
+// (e.g. cents) plus an ISO-4217 currency code — never as a float.
+message Money {
+  // Amount in the smallest currency unit (cents for USD).
+  int64 amount_cents = 1;
+  // ISO-4217 currency code, e.g. "USD".
+  string currency = 2;
+}
+
+message PageRequest {
+  // Opaque cursor returned by a previous page (empty for the first page).
+  string cursor = 1;
+  // Max items to return (server clamps to a sane maximum).
+  int32 limit = 2;
+}
+
+message PageResponse {
+  string next_cursor = 1;
+  bool has_more = 2;
+  int64 total_estimate = 3;
+}
+
+// Standard error detail attached to gRPC status for client-friendly handling.
+message ErrorDetail {
+  string code = 1;        // machine code, e.g. "VALIDATION_FAILED"
+  string message = 2;     // human-readable
+  map<string, string> fields = 3; // per-field validation errors
+}
+
+// Carried in metadata; identifies the authenticated principal after gateway authN.
+message Principal {
+  string user_id = 1;
+  repeated string roles = 2;
+  repeated string permissions = 3;
+  string session_id = 4;
+  string residency_country = 5;
+}
+
+enum AccountType {
+  ACCOUNT_TYPE_UNSPECIFIED = 0;
+  ACCOUNT_TYPE_CLIENT = 1;
+  ACCOUNT_TYPE_FREELANCER = 2;
+  ACCOUNT_TYPE_ADMIN = 3;
+  ACCOUNT_TYPE_SUPPORT = 4;
+}

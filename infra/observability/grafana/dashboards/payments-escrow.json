@@ -1,0 +1,195 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": false,
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": ["aizorix", "payments", "escrow", "finance"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "prometheus" }
+      }
+    ]
+  },
+  "time": { "from": "now-24h", "to": "now" },
+  "title": "Aizorix — Payments & Escrow",
+  "uid": "aizorix-payments-escrow",
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Payment Capture Success (15m)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.98 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_transactions_total{type=\"capture\",status=\"succeeded\"}[15m])) / clamp_min(sum(rate(payment_transactions_total{type=\"capture\"}[15m])), 1e-9)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Escrow Reconciliation Mismatch",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "locale",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" },
+      "targets": [
+        { "expr": "abs(escrow_reconciliation_mismatch_cents)", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Escrow Funds Held (USD)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [
+        { "expr": "sum(escrow_held_balance_cents) / 100", "refId": "A" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Last Reconciliation Age",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1800 },
+              { "color": "red", "value": 3600 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background" },
+      "targets": [
+        {
+          "expr": "time() - escrow_reconciliation_last_success_timestamp_seconds",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Payment Transactions by Status",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "ops", "custom": { "stacking": { "mode": "normal" }, "fillOpacity": 30 } } },
+      "targets": [
+        {
+          "expr": "sum by (status) (rate(payment_transactions_total{type=\"capture\"}[5m]))",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Payout Volume (USD / 5m)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [
+        {
+          "expr": "sum(rate(payment_amount_cents_total{type=\"payout\",status=\"paid\"}[5m])) / 100",
+          "legendFormat": "payouts",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Escrow Events (funded vs released)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        {
+          "expr": "sum(rate(escrow_events_total{event=\"funded\"}[5m]))",
+          "legendFormat": "funded",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(escrow_events_total{event=\"released\"}[5m]))",
+          "legendFormat": "released",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Reconciliation Mismatch (cents, signed)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "locale" } },
+      "targets": [
+        { "expr": "escrow_reconciliation_mismatch_cents", "legendFormat": "mismatch", "refId": "A" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Stripe Webhook Processing Latency (p99)",
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 22 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, event_type) (rate(stripe_webhook_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{event_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Payment/Escrow Errors (Loki)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 22 },
+      "options": { "showTime": true, "wrapLogMessage": true },
+      "targets": [
+        {
+          "expr": "{service=~\"payment|escrow\"} | json | level=~\"error|warn\"",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

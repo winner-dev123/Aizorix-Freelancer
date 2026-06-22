@@ -1,0 +1,160 @@
+# Release pipeline.
+#
+#   1. semantic-release computes the next version from Conventional Commits,
+#      generates CHANGELOG.md, creates the Git tag + GitHub Release.
+#   2. The new tag fans out to build-push.yml (service images) and to the
+#      Tauri desktop bundle build below.
+#   3. Cross-platform Tauri bundles (.msi/.exe, .dmg/.app, .deb/.AppImage) are
+#      built and uploaded to the GitHub Release as artifacts.
+#   4. The orchestration job calls the reusable deploy workflow: staging (auto)
+#      then production (gated).
+
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compute version without publishing"
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create tags/releases
+  issues: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  # ── 1. Decide the next semantic version + changelog + tag ───────────
+  version:
+    name: semantic-version
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.semrel.outputs.new_release_published }}
+      version: ${{ steps.semrel.outputs.new_release_version }}
+      tag: v${{ steps.semrel.outputs.new_release_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: semantic-release
+        id: semrel
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+          dry_run: ${{ inputs.dry_run == true }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. Build cross-platform Tauri desktop bundles ───────────────────
+  tauri-bundle:
+    name: tauri-bundle (${{ matrix.os }})
+    needs: version
+    if: needs.version.outputs.released == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            args: ""
+          - os: windows-latest
+            args: ""
+          - os: macos-latest
+            args: "--target universal-apple-darwin"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libsoup-3.0-dev build-essential curl wget file libssl-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Install frontend deps for tracker
+        working-directory: desktop-tracker
+        run: pnpm install --frozen-lockfile
+
+      - name: Build & upload Tauri bundle
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Code-signing secrets (optional; only used when present).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        with:
+          projectPath: desktop-tracker
+          tagName: ${{ needs.version.outputs.tag }}
+          releaseName: "Aizorix Tracker ${{ needs.version.outputs.version }}"
+          releaseBody: "See CHANGELOG.md for details."
+          releaseDraft: false
+          prerelease: false
+          args: ${{ matrix.args }}
+
+  # ── 4. Promote the release: staging (auto) then production (gated) ──
+  deploy-staging:
+    name: deploy-staging
+    needs: version
+    if: needs.version.outputs.released == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      image_tag: ${{ needs.version.outputs.tag }}
+      services: '["auth","timetracking","screenshot","payment","escrow"]'
+      run_migrations: true
+    secrets:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+      ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+      DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
+
+  deploy-production:
+    name: deploy-production
+    needs: [version, deploy-staging]
+    if: needs.version.outputs.released == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      image_tag: ${{ needs.version.outputs.tag }}
+      services: '["auth","timetracking","screenshot","payment","escrow"]'
+      run_migrations: true
+    secrets:
+      AWS_DEPLOY_ROLE_ARN: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+      ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}

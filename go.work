@@ -1,0 +1,29 @@
+// Go workspace tying together the shared platform library and each service module.
+// Each service is its own module so they can be versioned and deployed independently;
+// the workspace lets local development resolve cross-module references without publishing.
+go 1.25.0
+
+use (
+	./services/admin
+	./services/analytics
+	./services/auth
+	./services/contract
+	./services/escrow
+	./services/fraud
+	// Platform & edge services
+	./services/gateway
+	./services/messaging
+	./services/notification
+	./services/payment
+	./services/pkg
+	./services/project
+	./services/proposal
+	./services/relay
+	./services/review
+	./services/screenshot
+	./services/search
+	./services/timetracking
+	./services/tools
+	./services/user
+	./services/wsgateway
+)

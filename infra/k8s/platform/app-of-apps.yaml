@@ -1,0 +1,69 @@
+# Argo CD "app-of-apps" root. This single Application points at a directory of child
+# Application manifests; Argo CD reconciles each one. Sync waves order the rollout so
+# controllers come up before the workloads that depend on them.
+#
+# Layout assumed in Git:
+#   infra/k8s/platform/apps/
+#     00-aws-lb-controller.yaml      (wave 0)
+#     00-external-secrets.yaml       (wave 0)
+#     00-cert-manager.yaml           (wave 0)
+#     00-karpenter.yaml              (wave 0)
+#     10-cluster-secret-store.yaml   (wave 1 — needs External Secrets CRDs)
+#     10-cluster-issuer.yaml         (wave 1 — needs cert-manager CRDs)
+#     20-aizorix-app.yaml            (wave 2 — the app overlay below)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aizorix/infra.git
+    targetRevision: main
+    path: infra/k8s/platform/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+# The application workloads themselves, sourced from the production Kustomize overlay.
+# (A second Application with path=overlays/staging targets the staging cluster.)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: aizorix-production
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/aizorix/infra.git
+    targetRevision: main
+    path: infra/k8s/overlays/production
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: aizorix
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

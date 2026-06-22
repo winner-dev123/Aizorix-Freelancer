@@ -1,0 +1,269 @@
+# Alerting rules. Severities:
+#   page    -> routes to PagerDuty (wakes someone up)
+#   ticket  -> routes to Slack (handle next business day)
+#
+# SLO burn-rate alerts use the multi-window, multi-burn-rate method
+# (Google SRE workbook): a fast window confirms the slow window so a brief spike
+# does not page, but real budget burn does.
+
+groups:
+  # ── Availability / error-rate SLO burn ──────────────────────────────
+  - name: aizorix.slo.availability
+    rules:
+      # 2% budget in 1h (fast burn): 1h AND 5m windows both > 14.4x error budget.
+      # Error budget = 0.1% (99.9% SLO) -> 14.4 * 0.001 = 0.0144.
+      - alert: HighErrorRateFastBurn
+        expr: |
+          service:http_errors:ratio1h > (14.4 * 0.001)
+          and
+          service:http_errors:ratio5m > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: page
+          slo: availability
+        annotations:
+          summary: "{{ $labels.service }} burning error budget fast (14.4x)"
+          description: >-
+            5xx ratio for {{ $labels.service }} is {{ $value | humanizePercentage }}
+            over 1h/5m windows — exhausts the 30d budget in ~2 days.
+          runbook_url: https://runbooks.aizorix.dev/availability-fast-burn
+
+      # 5% budget in 6h (slow burn): 6h AND 30m windows both > 6x.
+      - alert: HighErrorRateSlowBurn
+        expr: |
+          service:http_errors:ratio6h > (6 * 0.001)
+          and
+          service:http_errors:ratio30m > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: ticket
+          slo: availability
+        annotations:
+          summary: "{{ $labels.service }} burning error budget (6x, slow)"
+          description: >-
+            5xx ratio for {{ $labels.service }} is {{ $value | humanizePercentage }}
+            sustained over 6h/30m windows.
+          runbook_url: https://runbooks.aizorix.dev/availability-slow-burn
+
+  # ── Latency SLO ─────────────────────────────────────────────────────
+  - name: aizorix.slo.latency
+    rules:
+      - alert: P99LatencySLOBreach
+        # p99 > 1s sustained breaches the latency SLO (target p99 < 500ms; 1s is
+        # the hard breach threshold accounting for headroom).
+        expr: service:http_request_duration_seconds:p99 > 1
+        for: 10m
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "{{ $labels.service }} p99 latency {{ $value | humanizeDuration }}"
+          description: >-
+            p99 request latency for {{ $labels.service }} has exceeded 1s for 10m.
+          runbook_url: https://runbooks.aizorix.dev/latency
+
+      - alert: LatencySLOFastBurn
+        # Fraction of fast (<500ms) requests dropped below the budget hard.
+        expr: |
+          (1 - service:http_latency_slo:good_ratio5m) > (14.4 * 0.01)
+        for: 5m
+        labels:
+          severity: page
+          slo: latency
+        annotations:
+          summary: "{{ $labels.service }} latency budget fast burn"
+          description: >-
+            {{ $value | humanizePercentage }} of requests slower than 500ms (5m).
+
+  # ── Kafka consumer lag ──────────────────────────────────────────────
+  - name: aizorix.kafka
+    rules:
+      - alert: KafkaConsumerLagHigh
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 10m
+        labels:
+          severity: ticket
+          component: kafka
+        annotations:
+          summary: "Consumer lag {{ $value }} on {{ $labels.consumergroup }}/{{ $labels.topic }}"
+          description: >-
+            Consumer group {{ $labels.consumergroup }} is >10k messages behind on
+            topic {{ $labels.topic }} for 10m.
+          runbook_url: https://runbooks.aizorix.dev/kafka-lag
+
+      - alert: KafkaConsumerLagCritical
+        expr: |
+          sum by (consumergroup, topic) (kafka_consumergroup_lag) > 100000
+        for: 5m
+        labels:
+          severity: page
+          component: kafka
+        annotations:
+          summary: "CRITICAL consumer lag on {{ $labels.consumergroup }}/{{ $labels.topic }}"
+          description: >-
+            Lag >100k for 5m — the billing/screenshot pipeline is falling behind.
+
+      - alert: KafkaConsumerStalled
+        # Lag not decreasing while messages are still being produced => stuck consumer.
+        expr: |
+          deriv(sum by (consumergroup, topic) (kafka_consumergroup_lag)[15m:]) >= 0
+          and sum by (consumergroup, topic) (kafka_consumergroup_lag) > 1000
+        for: 15m
+        labels:
+          severity: page
+          component: kafka
+        annotations:
+          summary: "Consumer {{ $labels.consumergroup }} appears stalled"
+          description: "Lag is flat or rising over 15m with a backlog > 1000."
+
+  # ── Database connections ────────────────────────────────────────────
+  - name: aizorix.database
+    rules:
+      - alert: PostgresConnectionsHigh
+        # >80% of max_connections in use.
+        expr: |
+          sum by (instance) (pg_stat_activity_count)
+            / on (instance) pg_settings_max_connections > 0.8
+        for: 5m
+        labels:
+          severity: ticket
+          component: database
+        annotations:
+          summary: "Postgres {{ $labels.instance }} connection pool {{ $value | humanizePercentage }} full"
+          description: "Connection usage above 80% of max_connections for 5m."
+
+      - alert: PostgresConnectionsCritical
+        expr: |
+          sum by (instance) (pg_stat_activity_count)
+            / on (instance) pg_settings_max_connections > 0.95
+        for: 2m
+        labels:
+          severity: page
+          component: database
+        annotations:
+          summary: "Postgres {{ $labels.instance }} nearly out of connections ({{ $value | humanizePercentage }})"
+          description: "Connection usage above 95% — new connections will start failing."
+
+      - alert: PgxPoolSaturation
+        # App-side pgxpool: in-use connections at/above the configured max.
+        expr: |
+          (pgxpool_acquired_conns / clamp_min(pgxpool_max_conns, 1)) > 0.9
+        for: 5m
+        labels:
+          severity: ticket
+          component: database
+        annotations:
+          summary: "{{ $labels.service }} pgx pool {{ $value | humanizePercentage }} saturated"
+          description: "Service-side DB pool nearly exhausted — expect acquire waits."
+
+  # ── Screenshot pipeline ─────────────────────────────────────────────
+  - name: aizorix.screenshot
+    rules:
+      - alert: ScreenshotUploadFailuresHigh
+        expr: |
+          sum(rate(screenshot_ingest_total{result="failure"}[10m]))
+            / clamp_min(sum(rate(screenshot_ingest_total[10m])), 1e-9) > 0.05
+        for: 10m
+        labels:
+          severity: page
+          component: screenshot
+        annotations:
+          summary: "Screenshot ingest failure rate {{ $value | humanizePercentage }}"
+          description: >-
+            >5% of screenshot uploads are failing (S3 write, decrypt-key, or
+            validation). Hourly billing depends on this pipeline.
+          runbook_url: https://runbooks.aizorix.dev/screenshot-ingest
+
+      - alert: ScreenshotIngestStalled
+        # Active work sessions exist but no screenshots are landing.
+        expr: |
+          sum(rate(screenshot_ingest_total[15m])) == 0
+          and sum(worksession_active) > 0
+        for: 15m
+        labels:
+          severity: page
+          component: screenshot
+        annotations:
+          summary: "No screenshots ingested despite {{ $value }} active sessions"
+          description: "Ingest throughput is zero for 15m while sessions are active."
+
+  # ── Escrow reconciliation ───────────────────────────────────────────
+  - name: aizorix.escrow
+    rules:
+      - alert: EscrowReconciliationMismatch
+        # Ledger balance vs. provider (Stripe) balance diverge beyond tolerance.
+        expr: abs(escrow_reconciliation_mismatch_cents) > 100
+        for: 0m # financial integrity — alert immediately
+        labels:
+          severity: page
+          component: escrow
+        annotations:
+          summary: "Escrow reconciliation mismatch of {{ $value }} cents"
+          description: >-
+            Escrow ledger and payment-provider balances disagree by more than $1.00.
+            Freeze releases and investigate before any payout.
+          runbook_url: https://runbooks.aizorix.dev/escrow-reconciliation
+
+      - alert: EscrowReconciliationJobStale
+        # The reconciliation job hasn't completed recently.
+        expr: time() - escrow_reconciliation_last_success_timestamp_seconds > 3600
+        for: 5m
+        labels:
+          severity: ticket
+          component: escrow
+        annotations:
+          summary: "Escrow reconciliation has not succeeded in >1h"
+          description: "Last successful reconciliation was {{ $value | humanizeDuration }} ago."
+
+      - alert: PaymentCaptureFailuresHigh
+        expr: |
+          sum(rate(payment_transactions_total{type="capture",status="failed"}[15m]))
+            / clamp_min(sum(rate(payment_transactions_total{type="capture"}[15m])), 1e-9) > 0.02
+        for: 10m
+        labels:
+          severity: page
+          component: payment
+        annotations:
+          summary: "Payment capture failure rate {{ $value | humanizePercentage }}"
+          description: ">2% of payment captures failing over 15m."
+          runbook_url: https://runbooks.aizorix.dev/payment-failures
+
+  # ── Kubernetes workload health ──────────────────────────────────────
+  - name: aizorix.kubernetes
+    rules:
+      - alert: PodCrashLooping
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace=~"aizorix.*"}[15m]) > 3
+        for: 5m
+        labels:
+          severity: page
+          component: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} crash looping"
+          description: >-
+            Container {{ $labels.container }} restarted more than 3 times in 15m.
+          runbook_url: https://runbooks.aizorix.dev/crashloop
+
+      - alert: PodNotReady
+        expr: |
+          sum by (namespace, pod) (
+            kube_pod_status_phase{namespace=~"aizorix.*",phase=~"Pending|Unknown"}
+          ) > 0
+        for: 15m
+        labels:
+          severity: ticket
+          component: kubernetes
+        annotations:
+          summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} not ready for 15m"
+          description: "Pod stuck in Pending/Unknown — check scheduling and resources."
+
+      - alert: TargetDown
+        expr: up{job=~"aizorix.*"} == 0
+        for: 5m
+        labels:
+          severity: page
+          component: kubernetes
+        annotations:
+          summary: "Scrape target down: {{ $labels.job }} / {{ $labels.instance }}"
+          description: "Prometheus cannot scrape this target for 5m."

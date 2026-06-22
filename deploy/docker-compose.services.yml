@@ -1,0 +1,219 @@
+# Aizorix application tier (the Go microservices) for local full-stack runs.
+#
+# This compose builds and runs the services and attaches them to the network
+# created by the ROOT docker-compose.yml (the dev infra: postgres, redis,
+# redpanda, minio, elasticsearch). Bring the infra up FIRST:
+#
+#   docker compose up -d                         # from repo root -> network "aizorix-dev_default"
+#   make migrate-up DATABASE_URL=...             # apply schema
+#   make seed       DATABASE_URL=...             # demo data
+#   docker compose -f deploy/docker-compose.services.yml up --build
+#
+# All services share one YAML anchor for the common build context (repo root)
+# and a baseline environment, then override per-service env and ports.
+name: aizorix-services
+
+# ── Shared environment (infra DNS names are valid on the external network) ──────
+x-common-env: &common-env
+  ENVIRONMENT: local
+  LOG_LEVEL: debug
+  DATABASE_URL: postgres://aizorix:aizorix_dev@postgres:5432/aizorix?sslmode=disable
+  REDIS_ADDR: redis:6379
+  KAFKA_BROKERS: redpanda:9092
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: us-east-1
+  S3_ACCESS_KEY: minioadmin
+  S3_SECRET_KEY: minioadmin
+  S3_BUCKET_SCREENSHOTS: aizorix-screenshots
+  S3_FORCE_PATH_STYLE: "true"
+
+x-healthcheck: &healthz
+  test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+  interval: 10s
+  timeout: 3s
+  retries: 5
+  start_period: 10s
+
+services:
+  # ── Edge ────────────────────────────────────────────────────────────────────
+  gateway:
+    build:
+      context: ..
+      dockerfile: services/gateway/Dockerfile
+    image: aizorix/gateway:dev
+    environment:
+      <<: *common-env
+      # Upstream routing table targets (gateway -> internal services).
+      UPSTREAM_AUTH: http://auth:8080
+      UPSTREAM_USER: http://user:8080
+      UPSTREAM_PROJECT: http://project:8080
+      UPSTREAM_PROPOSAL: http://proposal:8080
+      UPSTREAM_CONTRACT: http://contract:8080
+      UPSTREAM_TIMETRACKING: http://timetracking:8080
+      UPSTREAM_SCREENSHOT: http://screenshot:8080
+      UPSTREAM_PAYMENT: http://payment:8080
+      UPSTREAM_ESCROW: http://escrow:8080
+      GATEWAY_JWKS_URL: http://auth:8080/.well-known/jwks.json
+    ports:
+      - "8080:8080"
+    depends_on:
+      auth:
+        condition: service_started
+    healthcheck: *healthz
+
+  # ── Identity ────────────────────────────────────────────────────────────────
+  auth:
+    build:
+      context: ..
+      dockerfile: services/auth/Dockerfile
+    image: aizorix/auth:dev
+    environment: *common-env
+    ports:
+      - "8081:8080"
+    healthcheck: *healthz
+
+  user:
+    build:
+      context: ..
+      dockerfile: services/user/Dockerfile
+    image: aizorix/user:dev
+    environment: *common-env
+    ports:
+      - "8082:8080"
+    healthcheck: *healthz
+
+  # ── Marketplace ─────────────────────────────────────────────────────────────
+  project:
+    build:
+      context: ..
+      dockerfile: services/project/Dockerfile
+    image: aizorix/project:dev
+    environment: *common-env
+    ports:
+      - "8083:8080"
+    healthcheck: *healthz
+
+  proposal:
+    build:
+      context: ..
+      dockerfile: services/proposal/Dockerfile
+    image: aizorix/proposal:dev
+    environment: *common-env
+    ports:
+      - "8084:8080"
+    healthcheck: *healthz
+
+  contract:
+    build:
+      context: ..
+      dockerfile: services/contract/Dockerfile
+    image: aizorix/contract:dev
+    environment: *common-env
+    ports:
+      - "8085:8080"
+    healthcheck: *healthz
+
+  # ── Time tracking & screenshots ─────────────────────────────────────────────
+  timetracking:
+    build:
+      context: ..
+      dockerfile: services/timetracking/Dockerfile
+    image: aizorix/timetracking:dev
+    environment: *common-env
+    ports:
+      - "8086:8080"
+    healthcheck: *healthz
+
+  screenshot:
+    build:
+      context: ..
+      dockerfile: services/screenshot/Dockerfile
+    image: aizorix/screenshot:dev
+    environment: *common-env
+    ports:
+      - "8087:8080"
+    healthcheck: *healthz
+
+  # ── Money ───────────────────────────────────────────────────────────────────
+  payment:
+    build:
+      context: ..
+      dockerfile: services/payment/Dockerfile
+    image: aizorix/payment:dev
+    environment: *common-env
+    ports:
+      - "8088:8080"
+    healthcheck: *healthz
+
+  escrow:
+    build:
+      context: ..
+      dockerfile: services/escrow/Dockerfile
+    image: aizorix/escrow:dev
+    environment: *common-env
+    ports:
+      - "8089:8080"
+    healthcheck: *healthz
+
+  # ── Realtime relay (websocket fan-out; uses Redis, not the /healthz HTTP) ────
+  relay:
+    build:
+      context: ..
+      dockerfile: services/relay/Dockerfile
+    image: aizorix/relay:dev
+    environment: *common-env
+    ports:
+      - "8090:8080"
+    healthcheck: *healthz
+
+  # ── Remaining services follow the IDENTICAL pattern; uncomment as needed ──────
+  # review:
+  #   build: { context: .., dockerfile: services/review/Dockerfile }
+  #   image: aizorix/review:dev
+  #   environment: *common-env
+  #   ports: ["8091:8080"]
+  #   healthcheck: *healthz
+  # messaging:
+  #   build: { context: .., dockerfile: services/messaging/Dockerfile }
+  #   image: aizorix/messaging:dev
+  #   environment: *common-env
+  #   ports: ["8092:8080"]
+  #   healthcheck: *healthz
+  # notification:
+  #   build: { context: .., dockerfile: services/notification/Dockerfile }
+  #   image: aizorix/notification:dev
+  #   environment: *common-env
+  #   ports: ["8093:8080"]
+  #   healthcheck: *healthz
+  # search:
+  #   build: { context: .., dockerfile: services/search/Dockerfile }
+  #   image: aizorix/search:dev
+  #   environment: *common-env
+  #   ports: ["8094:8080"]
+  #   healthcheck: *healthz
+  # fraud:
+  #   build: { context: .., dockerfile: services/fraud/Dockerfile }
+  #   image: aizorix/fraud:dev
+  #   environment: *common-env
+  #   ports: ["8095:8080"]
+  #   healthcheck: *healthz
+  # admin:
+  #   build: { context: .., dockerfile: services/admin/Dockerfile }
+  #   image: aizorix/admin:dev
+  #   environment: *common-env
+  #   ports: ["8096:8080"]
+  #   healthcheck: *healthz
+  # analytics:
+  #   build: { context: .., dockerfile: services/analytics/Dockerfile }
+  #   image: aizorix/analytics:dev
+  #   environment: *common-env
+  #   ports: ["8097:8080"]
+  #   healthcheck: *healthz
+
+# Attach to the network created by the ROOT docker-compose.yml (name: aizorix-dev).
+# Compose names the default network "<project>_default" => "aizorix-dev_default".
+# If your infra project name differs, override AIZORIX_INFRA_NETWORK or edit below.
+networks:
+  default:
+    name: aizorix-dev_default
+    external: true

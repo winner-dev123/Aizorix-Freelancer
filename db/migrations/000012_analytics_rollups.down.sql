@@ -1,0 +1,5 @@
+BEGIN;
+DROP TABLE IF EXISTS funnel_daily;
+DROP TABLE IF EXISTS gmv_daily;
+DROP TABLE IF EXISTS event_counts;
+COMMIT;

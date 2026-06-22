@@ -1,0 +1,87 @@
+# syntax=docker/dockerfile:1.7
+#
+# Generic multi-stage build for an Aizorix Go service.
+#
+# Build context = REPO ROOT (so the Go workspace + shared ./services/pkg are available).
+# Pass the service name at build time:
+#
+#   docker build \
+#     -f infra/docker/Dockerfile.service.template \
+#     --build-arg SERVICE=auth \
+#     -t <registry>/aizorix/auth:<tag> .
+#
+# Produces a tiny, static, non-root, distroless image with no shell or package manager.
+
+############################
+# 1) Build stage
+############################
+ARG GO_VERSION=1.22
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-bookworm AS build
+
+# Which service module under services/<SERVICE> to build.
+ARG SERVICE
+# Cross-compile targets (set by buildx for multi-arch); default to linux/amd64.
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+# Version metadata stamped into the binary via -ldflags.
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+
+WORKDIR /src
+
+# Copy the workspace file + every module's go.mod/go.sum FIRST so dependency download is
+# cached independently of source changes. The shared pkg module is required by all services.
+COPY go.work go.work.sum* ./
+COPY services/pkg/go.mod services/pkg/go.sum ./services/pkg/
+COPY services/${SERVICE}/go.mod services/${SERVICE}/go.sum ./services/${SERVICE}/
+
+# Warm the module cache (BuildKit cache mount keeps it across builds).
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go work sync
+
+# Now copy the actual source.
+COPY services/pkg ./services/pkg
+COPY services/${SERVICE} ./services/${SERVICE}
+
+# Build a fully static binary:
+#   CGO_DISABLED -> no libc dependency (works on distroless static / scratch)
+#   -trimpath    -> reproducible paths
+#   -s -w        -> strip debug info for a smaller binary
+WORKDIR /src/services/${SERVICE}
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build \
+      -trimpath \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.gitSHA=${GIT_SHA}" \
+      -o /out/service ./cmd/server
+
+############################
+# 2) Runtime stage — distroless, non-root, static
+############################
+# distroless static = no shell, no libc, no package manager → minimal attack surface.
+# The :nonroot tag runs as uid 65532 (matches the k8s securityContext in the base manifest).
+FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+# OCI labels for provenance.
+ARG SERVICE
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+LABEL org.opencontainers.image.title="aizorix-${SERVICE}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.source="https://github.com/aizorix/aizorix"
+
+# Run as the unprivileged distroless user (already the default for :nonroot, set explicitly).
+USER 65532:65532
+WORKDIR /
+
+COPY --from=build /out/service /usr/local/bin/service
+
+# gRPC (8080), HTTP/REST (8081), Prometheus metrics (9090) — must match the k8s Service.
+EXPOSE 8080 8081 9090
+
+# No shell in distroless, so use exec-form ENTRYPOINT (PID 1 receives SIGTERM directly for
+# graceful shutdown).
+ENTRYPOINT ["/usr/local/bin/service"]

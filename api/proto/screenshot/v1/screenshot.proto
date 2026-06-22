@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package screenshot.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+
+// ScreenshotService is a thin control plane. The encrypted blob travels directly
+// between the device and S3 via presigned URLs; this service never touches it.
+service ScreenshotService {
+  // 1) Device asks for an upload slot. Server returns a presigned PUT URL and the
+  //    KMS-wrapped data key the device must use to AES-256-GCM encrypt the image.
+  rpc RequestUploadSlot(RequestUploadSlotRequest) returns (RequestUploadSlotResponse);
+
+  // 2) After the device PUTs the ciphertext to S3, it confirms with integrity data.
+  rpc ConfirmUpload(ConfirmUploadRequest) returns (ConfirmUploadResponse);
+
+  // 3) Authorized viewers (contract parties, admins) get a short-TTL signed GET URL
+  //    plus the material to decrypt — every call is audited.
+  rpc GetScreenshot(GetScreenshotRequest) returns (GetScreenshotResponse) {
+    option (google.api.http) = { get: "/v1/screenshots/{screenshot_id}" };
+  }
+  rpc ListSessionScreenshots(ListSessionScreenshotsRequest) returns (ListSessionScreenshotsResponse) {
+    option (google.api.http) = { get: "/v1/sessions/{session_id}/screenshots" };
+  }
+  // Compliance/GDPR erasure: crypto-shred by destroying the wrapped DEK.
+  rpc DeleteForCompliance(DeleteForComplianceRequest) returns (DeleteForComplianceResponse);
+}
+
+message RequestUploadSlotRequest {
+  string contract_id = 1;
+  string session_id = 2;
+  string slice_id = 3;
+  string device_id = 4;
+  google.protobuf.Timestamp captured_at = 5;
+  // Offline-first: the device-generated DEK the blob was already encrypted with, for the
+  // server to KMS-wrap. Empty for the online flow (server mints the DEK and returns it).
+  bytes client_dek = 6;
+}
+message RequestUploadSlotResponse {
+  string screenshot_id = 1;
+  string upload_url = 2;          // presigned S3 PUT (HTTPS, short TTL)
+  string s3_bucket = 3;
+  string s3_key = 4;
+  // Envelope encryption material:
+  bytes wrapped_dek = 5;          // KMS-wrapped 256-bit data key
+  bytes plaintext_dek = 6;        // returned over mTLS so the device can encrypt; never stored
+  string kms_key_id = 7;
+  map<string, string> required_headers = 8; // headers the PUT must include (SSE-KMS, etc.)
+}
+
+message ConfirmUploadRequest {
+  string screenshot_id = 1;
+  bytes sha256_cipher = 2;        // device-computed hash of the ciphertext
+  bytes gcm_nonce = 3;
+  bytes device_signature = 4;     // Ed25519 over (sha256_cipher||captured_at||contract_id)
+  int32 width = 5;
+  int32 height = 6;
+  int64 size_bytes = 7;
+  string format = 8;              // "webp"
+  bytes phash = 9;                // perceptual hash for dedupe/fraud
+  int32 activity_pct = 10;        // activity for the slice this screenshot covers
+}
+message ConfirmUploadResponse { bool accepted = 1; }
+
+message GetScreenshotRequest { string screenshot_id = 1; }
+message GetScreenshotResponse {
+  string screenshot_id = 1;
+  string download_url = 2;        // presigned S3 GET, short TTL
+  bytes wrapped_dek = 3;          // caller (authorized service/client) unwraps via KMS
+  bytes gcm_nonce = 4;
+  google.protobuf.Timestamp captured_at = 5;
+  string status = 6;
+  bool flagged = 7;
+}
+
+message ListSessionScreenshotsRequest { string session_id = 1; }
+message ScreenshotSummary {
+  string screenshot_id = 1;
+  google.protobuf.Timestamp captured_at = 2;
+  int32 activity_pct = 3;
+  bool flagged = 4;
+  string thumbnail_url = 5;       // small, server-decrypted thumbnail (signed, TTL)
+}
+message ListSessionScreenshotsResponse { repeated ScreenshotSummary screenshots = 1; }
+
+message DeleteForComplianceRequest { string user_id = 1; string reason = 2; }
+message DeleteForComplianceResponse { int32 shredded_count = 1; }

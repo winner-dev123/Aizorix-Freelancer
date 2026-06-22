@@ -1,0 +1,166 @@
+# Backend CI — runs on every PR and push touching Go code.
+#
+# Strategy: detect which service modules changed, then fan out a matrix so a one-line
+# change in `auth` does not rebuild/test every service. The shared `pkg` module is a
+# dependency of everything, so a change there forces the full matrix.
+#
+# Each job: go build, go vet, golangci-lint, go test -race, govulncheck.
+# Modules are cached by go.sum hash to keep cold builds fast.
+
+name: ci-backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+      - "go.work"
+      - ".github/workflows/ci-backend.yml"
+  pull_request:
+    paths:
+      - "services/**"
+      - "go.work"
+      - ".github/workflows/ci-backend.yml"
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Modules declare `go 1.25.0`; the runner Go must be >= that or builds fail.
+  GO_VERSION: "1.25"
+  GOLANGCI_LINT_VERSION: "v1.59.1"
+
+jobs:
+  # ── 1. Work out which service modules actually need CI ──────────────
+  changes:
+    name: detect-changes
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.set.outputs.services }}
+      any: ${{ steps.set.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute changed service modules
+        id: set
+        shell: bash
+        run: |
+          set -euo pipefail
+          # All modules that currently exist (have a go.mod).
+          mapfile -t ALL < <(find services -mindepth 1 -maxdepth 1 -type d -exec test -f '{}/go.mod' ';' -print | sort)
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+
+          # Diff against the base. Fall back to "everything" if the base is unknown.
+          if ! CHANGED=$(git diff --name-only "$BASE"...HEAD 2>/dev/null); then
+            CHANGED=$(git diff --name-only HEAD~1...HEAD || true)
+          fi
+          echo "Changed files:"; echo "$CHANGED"
+
+          # A change in the shared pkg or the workspace file rebuilds everything.
+          FORCE_ALL=false
+          if echo "$CHANGED" | grep -qE '^services/pkg/|^go\.work$|^\.github/workflows/ci-backend\.yml$'; then
+            FORCE_ALL=true
+          fi
+
+          SELECTED=()
+          for dir in "${ALL[@]}"; do
+            name=$(basename "$dir")
+            [ "$name" = "pkg" ] && continue
+            if [ "$FORCE_ALL" = "true" ] || echo "$CHANGED" | grep -qE "^services/${name}/"; then
+              SELECTED+=("$name")
+            fi
+          done
+
+          if [ ${#SELECTED[@]} -eq 0 ]; then
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          else
+            JSON=$(printf '%s\n' "${SELECTED[@]}" | jq -R . | jq -cs .)
+            echo "services=$JSON" >> "$GITHUB_OUTPUT"
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Selected: ${SELECTED[*]:-none}"
+
+  # ── 2. Build / vet / lint / test / vuln-scan each changed service ───
+  test:
+    name: ${{ matrix.service }}
+    needs: changes
+    if: needs.changes.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.changes.outputs.services) }}
+    defaults:
+      run:
+        working-directory: services/${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          # setup-go caches the module + build cache keyed on go.sum files.
+          cache-dependency-path: |
+            services/${{ matrix.service }}/go.sum
+            services/pkg/go.sum
+
+      - name: go build
+        run: go build -v ./...
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: services/${{ matrix.service }}
+          args: --timeout=5m
+
+      - name: go test -race
+        run: go test -race -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.service }}
+          path: services/${{ matrix.service }}/coverage.out
+          if-no-files-found: ignore
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  # ── 3. Single required status check the branch-protection rule targets ──
+  backend-ci:
+    name: backend-ci
+    needs: [changes, test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate
+        run: |
+          if [ "${{ needs.changes.outputs.any }}" = "false" ]; then
+            echo "No Go services changed — passing."
+            exit 0
+          fi
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "One or more service jobs failed."
+            exit 1
+          fi
+          echo "All changed services passed."

@@ -1,0 +1,8 @@
+BEGIN;
+DROP TABLE IF EXISTS disputes;
+DROP TABLE IF EXISTS hourly_contracts;
+DROP TABLE IF EXISTS deliverables;
+DROP TABLE IF EXISTS milestones;
+DROP TABLE IF EXISTS contract_events;
+DROP TABLE IF EXISTS contracts;
+COMMIT;

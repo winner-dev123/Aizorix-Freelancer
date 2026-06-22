@@ -1,0 +1,354 @@
+// Package service holds the contract business logic. The fixed-price milestone state
+// machine is the core: pending -> funded -> submitted -> approved (-> released elsewhere).
+// Every contract-level transition updates contracts.status AND appends a contract_events
+// row atomically (event sourcing), and outward-facing transitions enqueue an outbox event
+// in the same transaction. Transport (HTTP) is a thin adapter over these methods.
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/aizorix/platform/contract/internal/store"
+	"github.com/aizorix/platform/pkg/outbox"
+	"github.com/aizorix/platform/pkg/rbac"
+)
+
+var (
+	// ErrInvalidParties is returned when the client and freelancer are the same user.
+	ErrInvalidParties = errors.New("contract: client and freelancer must differ")
+	// ErrNoMilestones is returned when a fixed-price contract has no milestones.
+	ErrNoMilestones = errors.New("contract: fixed-price contract requires at least one milestone")
+	// ErrInvalidState is returned when a contract-level transition is not allowed.
+	ErrInvalidState = errors.New("contract: invalid state for this operation")
+	// ErrInvalidMilestoneState is returned when a milestone transition is not allowed.
+	ErrInvalidMilestoneState = errors.New("contract: invalid milestone state for this operation")
+	// ErrNotFound re-exports the store sentinel for transport mapping.
+	ErrNotFound = store.ErrNotFound
+	// ErrForbidden re-exports the rbac sentinel so the transport maps a non-party caller to 403.
+	ErrForbidden = rbac.ErrForbidden
+)
+
+type Service struct{ store *store.Store }
+
+func New(st *store.Store) *Service { return &Service{store: st} }
+
+// ── input DTOs ──────────────────────────────────────────────────────────────
+
+type CreateInput struct {
+	ProjectID        string
+	ProposalID       string
+	ClientID         string
+	FreelancerID     string
+	BudgetType       string // 'fixed' | 'hourly'
+	Currency         string
+	TotalAmountCents *int64
+	HourlyRateCents  *int64
+	WeeklyHourLimit  *int
+	PlatformFeeBps   int
+	Milestones       []store.MilestoneInput
+}
+
+// ── output views ────────────────────────────────────────────────────────────
+
+// ContractView bundles a contract with its milestones for GetContract.
+type ContractView struct {
+	Contract   store.Contract
+	Milestones []store.Milestone
+}
+
+// CreateFromProposal inserts a contract (pending_funding), the hourly settings row or the
+// fixed-price milestones, and the initial 'create' contract_events row — all in one tx.
+func (s *Service) CreateFromProposal(ctx context.Context, in CreateInput) (*store.Contract, error) {
+	if in.ClientID == in.FreelancerID || in.ClientID == "" || in.FreelancerID == "" {
+		return nil, ErrInvalidParties
+	}
+	if in.BudgetType == "fixed" && len(in.Milestones) == 0 {
+		return nil, ErrNoMilestones
+	}
+	if in.Currency == "" {
+		in.Currency = "USD"
+	}
+	if in.PlatformFeeBps == 0 {
+		in.PlatformFeeBps = 1000
+	}
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	id, err := s.store.InsertContract(ctx, tx, store.Contract{
+		ProjectID:        in.ProjectID,
+		ProposalID:       in.ProposalID,
+		ClientID:         in.ClientID,
+		FreelancerID:     in.FreelancerID,
+		BudgetType:       in.BudgetType,
+		Currency:         in.Currency,
+		TotalAmountCents: in.TotalAmountCents,
+		HourlyRateCents:  in.HourlyRateCents,
+		WeeklyHourLimit:  in.WeeklyHourLimit,
+		PlatformFeeBps:   in.PlatformFeeBps,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if in.BudgetType == "hourly" {
+		if err := s.store.InsertHourlyContract(ctx, tx, id); err != nil {
+			return nil, err
+		}
+	} else {
+		for _, m := range in.Milestones {
+			if err := s.store.InsertMilestone(ctx, tx, id, m); err != nil {
+				return nil, err
+			}
+		}
+	}
+	actor := in.ClientID
+	if err := s.store.InsertContractEvent(ctx, tx, id, nil, "pending_funding", "create", &actor, nil); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return &store.Contract{
+		ID: id, ProjectID: in.ProjectID, ProposalID: in.ProposalID, ClientID: in.ClientID,
+		FreelancerID: in.FreelancerID, BudgetType: in.BudgetType, Currency: in.Currency,
+		TotalAmountCents: in.TotalAmountCents, HourlyRateCents: in.HourlyRateCents,
+		WeeklyHourLimit: in.WeeklyHourLimit, Status: "pending_funding", PlatformFeeBps: in.PlatformFeeBps,
+	}, nil
+}
+
+// ActivateContract moves pending_funding -> active, stamps started_at, appends the
+// 'activate' event and emits contract.activated. Guards the current status atomically.
+func (s *Service) ActivateContract(ctx context.Context, id, actor string) error {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	ok, err := s.store.TransitionContract(ctx, tx, id, "pending_funding", "active")
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInvalidState
+	}
+	if err := s.store.MarkContractStarted(ctx, tx, id); err != nil {
+		return err
+	}
+	c, err := s.store.GetContractTx(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	from := "pending_funding"
+	if err := s.store.InsertContractEvent(ctx, tx, id, &from, "active", "activate", &actor, nil); err != nil {
+		return err
+	}
+	if err := outbox.Enqueue(ctx, tx, outbox.Event{
+		AggregateType: "contract", AggregateID: id, EventType: "contract.activated",
+		Topic: "contract.events", PartitionKey: id,
+		Payload: map[string]any{
+			"contract_id": id, "client_id": c.ClientID,
+			"freelancer_id": c.FreelancerID, "budget_type": c.BudgetType,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// FundMilestone moves a milestone pending -> funded (escrow funding is handled elsewhere).
+// Only the contract's client may fund a milestone. milestoneInfo locks the milestone row
+// FOR UPDATE, so the party check below observes a consistent contract within the same tx.
+func (s *Service) FundMilestone(ctx context.Context, milestoneID, caller string) error {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	contractID, ok, err := s.store.FundMilestone(ctx, tx, milestoneID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInvalidMilestoneState
+	}
+	c, err := s.store.GetContractTx(ctx, tx, contractID)
+	if err != nil {
+		return err
+	}
+	if caller != c.ClientID {
+		return rbac.ErrForbidden
+	}
+	return tx.Commit(ctx)
+}
+
+// SubmitMilestone moves a milestone funded -> submitted and, when a note or s3 keys are
+// supplied, records a deliverable in the same transaction.
+func (s *Service) SubmitMilestone(ctx context.Context, milestoneID, actorFreelancerID, note string, s3Keys []string) error {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	contractID, ok, err := s.store.SubmitMilestone(ctx, tx, milestoneID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInvalidMilestoneState
+	}
+	// Only the contract's freelancer may submit work for a milestone.
+	freelancerID, err := s.store.FreelancerOfContract(ctx, tx, contractID)
+	if err != nil {
+		return err
+	}
+	if actorFreelancerID != freelancerID {
+		return rbac.ErrForbidden
+	}
+	if note != "" || len(s3Keys) > 0 {
+		if err := s.store.InsertDeliverable(ctx, tx, milestoneID, actorFreelancerID, note, s3Keys); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+// ApproveMilestone moves a milestone submitted -> approved and emits milestone.approved.
+// Billing/ledger effects are handled elsewhere off the event.
+func (s *Service) ApproveMilestone(ctx context.Context, milestoneID, actorClientID string) error {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	contractID, amount, ok, err := s.store.ApproveMilestone(ctx, tx, milestoneID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrInvalidMilestoneState
+	}
+	// Only the contract's client may approve a milestone.
+	c, err := s.store.GetContractTx(ctx, tx, contractID)
+	if err != nil {
+		return err
+	}
+	if actorClientID != c.ClientID {
+		return rbac.ErrForbidden
+	}
+	freelancerID := c.FreelancerID
+	if err := outbox.Enqueue(ctx, tx, outbox.Event{
+		AggregateType: "contract", AggregateID: contractID, EventType: "milestone.approved",
+		Topic: "contract.events", PartitionKey: contractID,
+		Payload: map[string]any{
+			"milestone_id": milestoneID, "contract_id": contractID,
+			"amount_cents": amount, "freelancer_id": freelancerID,
+		},
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RaiseDispute inserts a disputes row, forces the contract into 'disputed', appends the
+// 'dispute' event capturing the prior status, and emits contract.disputed.
+func (s *Service) RaiseDispute(ctx context.Context, contractID, raisedBy, against string, milestoneID *string, reason string, amountCents *int64) (string, error) {
+	tx, err := s.store.Pool().Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
+
+	from, err := s.store.CurrentStatus(ctx, tx, contractID)
+	if err != nil {
+		return "", err
+	}
+	// Only a party to the contract (client or freelancer) may raise a dispute. CurrentStatus
+	// locked the contract row FOR UPDATE, so these parties are read consistently.
+	c, err := s.store.GetContractTx(ctx, tx, contractID)
+	if err != nil {
+		return "", err
+	}
+	if err := rbac.RequireOneOf(raisedBy, c.ClientID, c.FreelancerID); err != nil {
+		return "", err
+	}
+	disputeID, err := s.store.InsertDispute(ctx, tx, store.Dispute{
+		ContractID: contractID, MilestoneID: milestoneID, RaisedBy: raisedBy,
+		Against: against, Reason: reason, AmountCents: amountCents,
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := s.store.ForceStatus(ctx, tx, contractID, "disputed"); err != nil {
+		return "", err
+	}
+	payload, _ := json.Marshal(map[string]any{"dispute_id": disputeID, "reason": reason})
+	if err := s.store.InsertContractEvent(ctx, tx, contractID, &from, "disputed", "dispute", &raisedBy, payload); err != nil {
+		return "", err
+	}
+	if err := outbox.Enqueue(ctx, tx, outbox.Event{
+		AggregateType: "contract", AggregateID: contractID, EventType: "contract.disputed",
+		Topic: "contract.events", PartitionKey: contractID,
+		Payload: map[string]any{
+			"contract_id": contractID, "dispute_id": disputeID,
+			"raised_by": raisedBy, "against": against,
+		},
+	}); err != nil {
+		return "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return "", err
+	}
+	return disputeID, nil
+}
+
+// GetContract returns a contract with its milestones.
+func (s *Service) GetContract(ctx context.Context, id string) (*ContractView, error) {
+	c, err := s.store.GetContract(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	ms, err := s.store.ListMilestones(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &ContractView{Contract: *c, Milestones: ms}, nil
+}
+
+// ListContractsForUser lists contracts where the user is the given party (client/freelancer).
+func (s *Service) ListContractsForUser(ctx context.Context, userID, role string) ([]store.Contract, error) {
+	if role != "freelancer" {
+		role = "client"
+	}
+	return s.store.ListForUser(ctx, userID, role)
+}
+
+// requireParty loads the contract and returns rbac.ErrForbidden unless userID is one of its
+// parties (client or freelancer). Shared by the read endpoints and milestone handlers so the
+// ownership guard stays consistent.
+func (s *Service) requireParty(ctx context.Context, contractID, userID string) (*store.Contract, error) {
+	c, err := s.store.GetContract(ctx, contractID)
+	if err != nil {
+		return nil, err
+	}
+	if err := rbac.RequireOneOf(userID, c.ClientID, c.FreelancerID); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// ContractEvents returns the activity timeline for a contract after verifying the caller is a
+// party to it (returns rbac.ErrForbidden otherwise).
+func (s *Service) ContractEvents(ctx context.Context, contractID, userID string) ([]store.ContractEvent, error) {
+	if _, err := s.requireParty(ctx, contractID, userID); err != nil {
+		return nil, err
+	}
+	return s.store.ListContractEvents(ctx, contractID)
+}

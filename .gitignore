@@ -1,0 +1,58 @@
+# Go
+/bin/
+*.exe
+*.test
+*.out
+vendor/
+.gocache/
+
+# Generated code
+**/*.pb.go
+**/*_grpc.pb.go
+**/gen/
+services/pkg/db/sqlc/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.pnpm-store/
+*.tsbuildinfo
+.turbo/
+
+# Rust / Tauri
+target/
+desktop-tracker/src-tauri/target/
+**/*.rs.bk
+
+# Env & secrets
+.env
+.env.local
+*.pem
+*.key
+!**/testdata/**/*.key
+secrets/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+.terraform.lock.hcl
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# Local data volumes
+.data/
+tmp/
+
+# Local demo runtime artifacts (scripts/demo.ps1)
+.demo-logs/
+.demo-pids
+devpg.ready

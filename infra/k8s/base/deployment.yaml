@@ -1,0 +1,126 @@
+# Generic Deployment. Hardened pod security (non-root, read-only rootfs, dropped caps),
+# topology spread for AZ resilience, gRPC + HTTP ports, and probes wired to the standard
+# health endpoints exposed by the shared platform library.
+#
+# Overlays patch: metadata.name, the container image, replicas, resources, and env (via
+# secretRef from External Secrets). The base ships safe defaults so a new service only needs
+# a tiny overlay.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service
+  labels:
+    app: service
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # zero-downtime: never drop below desired during rollout
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: service
+  template:
+    metadata:
+      labels:
+        app: service
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: service
+      # Spread replicas across AZs and nodes so one AZ/node loss can't take the service down.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532 # distroless "nonroot" uid
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: service
+          image: REPLACED_BY_OVERLAY # e.g. <registry>/aizorix/auth:<tag>
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 8080
+            - name: http
+              containerPort: 8081
+            - name: metrics
+              containerPort: 9090
+          # Non-secret config; secret env injected via envFrom secretRef in overlays.
+          env:
+            - name: ENVIRONMENT
+              value: "REPLACED_BY_OVERLAY"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.observability.svc:4317"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          # External Secrets writes a k8s Secret named "<service>-config"; overlays add this.
+          envFrom:
+            - secretRef:
+                name: service-config
+                optional: false
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              memory: "512Mi" # no CPU limit on purpose: avoid CFS throttling latency spikes
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+          # NB: distroless images have no shell/sleep, so we do NOT use an exec preStop hook.
+          # Graceful drain is handled in-process: the app traps SIGTERM, fails readiness, and
+          # finishes in-flight gRPC/HTTP requests within terminationGracePeriodSeconds.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,75 @@
+# Default-deny + explicit allows for a generic service. Requires a CNI that enforces
+# NetworkPolicy (VPC CNI w/ network policy enabled, or Cilium).
+#
+# Posture:
+#   * Ingress: only from other pods in the aizorix namespace (mesh/east-west) and from the
+#     ingress controller namespace (north-south for REST edge services).
+#   * Egress: DNS, intra-namespace, and out to the VPC (RDS/Redis/MSK/AWS endpoints).
+#     Cross-service calls stay inside the namespace; external AWS is reached over the VPC CIDR.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: service
+  labels:
+    app: service
+spec:
+  podSelector:
+    matchLabels:
+      app: service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # East-west from sibling services in the same namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aizorix
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 8081
+          protocol: TCP
+    # North-south from the ingress controller (REST edge) + Prometheus scrape.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 8081
+          protocol: TCP
+        - port: 9090
+          protocol: TCP
+  egress:
+    # DNS.
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Intra-namespace service-to-service.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: aizorix
+    # VPC-internal backing services (RDS 5432, Redis 6379, MSK 9094/9098) + AWS VPC endpoints.
+    # CIDR is the VPC range; overlays may tighten this to specific data-store SGs/CIDRs.
+    - to:
+        - ipBlock:
+            cidr: 10.0.0.0/8
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+        - port: 9094
+          protocol: TCP
+        - port: 9098
+          protocol: TCP

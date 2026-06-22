@@ -1,0 +1,12 @@
+# Application namespace with Pod Security Admission set to "restricted" — enforces the same
+# hardening (non-root, no privilege escalation, dropped caps) the base manifests already use.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: aizorix
+  labels:
+    kubernetes.io/metadata.name: aizorix
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

@@ -1,0 +1,77 @@
+# Frontend CI — Next.js app at web/.
+# Runs lint, typecheck, unit tests, and a production `next build` to catch
+# build-time errors (RSC boundary issues, env var usage, etc.) before merge.
+
+name: ci-frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/ci-frontend.yml"
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/ci-frontend.yml"
+
+concurrency:
+  group: ci-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  build:
+    name: lint • typecheck • test • build
+    runs-on: ubuntu-latest
+    env:
+      # Next reads NEXT_PUBLIC_* at build time; provide safe defaults so the
+      # production build does not fail on missing public config.
+      NEXT_PUBLIC_API_BASE_URL: https://api.aizorix.test
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        # Don't fail the pipeline before a test runner exists; once a `test`
+        # script is added it runs for real. `--if-present` makes this safe.
+        run: pnpm run --if-present test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Upload Next build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-next-build
+          path: |
+            web/.next/
+            !web/.next/cache/**
+          retention-days: 3
+          if-no-files-found: error

@@ -1,0 +1,61 @@
+# golangci-lint configuration for the Aizorix monorepo.
+# Run with:  golangci-lint run ./...   (per module, the Makefile loops the workspace)
+run:
+  timeout: 5m
+  tests: true
+  # Each service is its own module; allow linting to traverse the workspace.
+  allow-parallel-runners: true
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - gofmt
+    - goimports
+    - unused
+    - gosec
+
+linters-settings:
+  goimports:
+    # Group our own packages last for readable import blocks.
+    local-prefixes: github.com/aizorix/platform
+  govet:
+    enable:
+      - shadow
+  errcheck:
+    check-type-assertions: true
+    check-blank: false
+  gosec:
+    excludes:
+      # G115 (integer overflow on conversion) is noisy on cents<->int64 money math.
+      - G115
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    # Test files: relax error-checking and security rules that produce noise.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - govet
+    # Generated code (sqlc, protobuf) should never be linted.
+    - path: (\.pb\.go|_gen\.go|/generated/)
+      linters:
+        - errcheck
+        - staticcheck
+        - gosec
+        - unused
+        - ineffassign
+    - path: db/(sqlc|generated)/
+      linters:
+        - errcheck
+        - staticcheck
+        - gosec
+        - unused
+  # Don't hide common false-positive messages outright; only the rules above.
+  exclude-use-default: false

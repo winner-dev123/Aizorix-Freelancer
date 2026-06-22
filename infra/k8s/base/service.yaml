@@ -1,0 +1,21 @@
+# ClusterIP service exposing gRPC (internal service-to-service) and HTTP (edge/BFF).
+# appProtocol hints let the AWS LB controller / service mesh treat gRPC correctly.
+apiVersion: v1
+kind: Service
+metadata:
+  name: service
+  labels:
+    app: service
+spec:
+  type: ClusterIP
+  selector:
+    app: service
+  ports:
+    - name: grpc
+      port: 8080
+      targetPort: grpc
+      appProtocol: grpc
+    - name: http
+      port: 8081
+      targetPort: http
+      appProtocol: http

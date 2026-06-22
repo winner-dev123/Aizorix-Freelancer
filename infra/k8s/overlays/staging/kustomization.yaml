@@ -1,0 +1,86 @@
+# Staging environment overlay. Same composition as production but with the staging account,
+# Secrets Manager prefix, lower replica floors, and mutable :staging image tags.
+#
+# Apply: kubectl apply -k infra/k8s/overlays/staging
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: aizorix
+
+resources:
+  - namespace.yaml
+  - ../../services/auth
+  - ../../services/screenshot
+
+images:
+  - name: REGISTRY/aizorix/auth
+    newName: 444455556666.dkr.ecr.us-east-1.amazonaws.com/aizorix/auth
+    newTag: "staging"
+  - name: REGISTRY/aizorix/screenshot
+    newName: 444455556666.dkr.ecr.us-east-1.amazonaws.com/aizorix/screenshot
+    newTag: "staging"
+
+patches:
+  - target:
+      kind: ServiceAccount
+      name: auth
+    patch: |
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::444455556666:role/aizorix-staging-irsa-auth
+  - target:
+      kind: ServiceAccount
+      name: screenshot
+    patch: |
+      - op: replace
+        path: /metadata/annotations/eks.amazonaws.com~1role-arn
+        value: arn:aws:iam::444455556666:role/aizorix-staging-irsa-screenshot
+  - target:
+      kind: Deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/value
+        value: staging
+  # Lower replica floors to save cost in staging.
+  - target:
+      kind: Deployment
+      name: auth
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: auth
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: screenshot
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: screenshot
+    patch: |
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+  - target:
+      kind: ExternalSecret
+      name: auth-config
+    patch: |
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: aizorix-staging/auth/config
+  - target:
+      kind: ExternalSecret
+      name: screenshot-config
+    patch: |
+      - op: replace
+        path: /spec/dataFrom/0/extract/key
+        value: aizorix-staging/screenshot/config
