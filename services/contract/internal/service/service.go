@@ -309,9 +309,10 @@ func (s *Service) RaiseDispute(ctx context.Context, contractID, raisedBy, agains
 	return disputeID, nil
 }
 
-// GetContract returns a contract with its milestones.
-func (s *Service) GetContract(ctx context.Context, id string) (*ContractView, error) {
-	c, err := s.store.GetContract(ctx, id)
+// GetContract returns a contract with its milestones after verifying the caller is a party
+// to it (returns rbac.ErrForbidden otherwise), mirroring ContractEvents' ownership guard.
+func (s *Service) GetContract(ctx context.Context, id, userID string) (*ContractView, error) {
+	c, err := s.requireParty(ctx, id, userID)
 	if err != nil {
 		return nil, err
 	}

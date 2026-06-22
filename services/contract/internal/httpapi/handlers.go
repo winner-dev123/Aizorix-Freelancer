@@ -128,7 +128,12 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) get(w http.ResponseWriter, r *http.Request) {
-	view, err := a.svc.GetContract(r.Context(), chi.URLParam(r, "id"))
+	p := principal(r)
+	if p.UserID == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return
+	}
+	view, err := a.svc.GetContract(r.Context(), chi.URLParam(r, "id"), p.UserID)
 	if err != nil {
 		mapError(w, err)
 		return

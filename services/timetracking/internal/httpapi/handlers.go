@@ -4,9 +4,11 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/aizorix/platform/timetracking/internal/activity"
 	"github.com/aizorix/platform/timetracking/internal/service"
 	"github.com/go-chi/chi/v5"
@@ -69,11 +71,15 @@ type sliceDTO struct {
 	IsManual       bool        `json:"is_manual"`
 }
 type submitReq struct {
-	Slices         []sliceDTO `json:"slices"`
-	IdempotencyKey string     `json:"idempotency_key"`
+	Slices []sliceDTO `json:"slices"`
 }
 
 func (a *API) submitSlices(w http.ResponseWriter, r *http.Request) {
+	caller := r.Header.Get("X-User-Id")
+	if caller == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return
+	}
 	var req submitReq
 	if !decode(w, r, &req) {
 		return
@@ -98,9 +104,9 @@ func (a *API) submitSlices(w http.ResponseWriter, r *http.Request) {
 	if len(in) > 0 {
 		contractID = in[0].ContractID
 	}
-	accepted, err := a.svc.IngestSlices(r.Context(), contractID, in)
+	accepted, err := a.svc.IngestSlices(r.Context(), sessionID, contractID, caller, in)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		mapError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"accepted": accepted})
@@ -111,11 +117,16 @@ type stopReq struct {
 }
 
 func (a *API) stopSession(w http.ResponseWriter, r *http.Request) {
+	caller := r.Header.Get("X-User-Id")
+	if caller == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return
+	}
 	var req stopReq
 	_ = decode(w, r, &req)
-	res, err := a.svc.StopSession(r.Context(), chi.URLParam(r, "id"), req.Memo, time.Now())
+	res, err := a.svc.StopSession(r.Context(), chi.URLParam(r, "id"), caller, req.Memo, time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+		mapError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -134,6 +145,17 @@ func (a *API) getTimesheet(w http.ResponseWriter, r *http.Request) {
 		"billing_week": v.Week, "total_billable_seconds": v.BillableSeconds,
 		"amount_cents": v.AmountCents, "status": v.Status, "avg_activity_pct": v.AvgActivityPct,
 	})
+}
+
+func mapError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrNotFound):
+		writeErr(w, http.StatusNotFound, "NOT_FOUND", "session not found")
+	case errors.Is(err, rbac.ErrForbidden):
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "not permitted")
+	default:
+		writeErr(w, http.StatusInternalServerError, "INTERNAL", err.Error())
+	}
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {

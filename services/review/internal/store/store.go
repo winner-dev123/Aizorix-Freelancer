@@ -125,6 +125,17 @@ func (s *Store) RecomputeReputation(ctx context.Context, tx pgx.Tx, userID strin
 	return err
 }
 
+// GetRevieweeID returns the reviewee_id for a review within tx. Used to authorize that the
+// responder is the reviewee before writing a response. Returns ErrNotFound if absent.
+func (s *Store) GetRevieweeID(ctx context.Context, tx pgx.Tx, reviewID string) (string, error) {
+	var revieweeID string
+	err := tx.QueryRow(ctx, `SELECT reviewee_id FROM reviews WHERE id=$1`, reviewID).Scan(&revieweeID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return revieweeID, err
+}
+
 // UpsertResponse inserts (or replaces) a single review response.
 func (s *Store) UpsertResponse(ctx context.Context, tx pgx.Tx, reviewID, responderID, response string) error {
 	_, err := tx.Exec(ctx, `

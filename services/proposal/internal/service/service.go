@@ -204,7 +204,20 @@ func (s *Service) GetProposal(ctx context.Context, id string) (*ProposalView, er
 }
 
 // ListProposalsForProject lists proposals on a project, optionally filtered by status.
-func (s *Service) ListProposalsForProject(ctx context.Context, projectID, status string) ([]store.Proposal, error) {
+// Only the client who owns the project may view its proposals (otherwise competitors'
+// bids would leak); ownership is verified against the projects table exactly as
+// ShortlistProposal does, returning rbac.ErrForbidden for non-owners.
+func (s *Service) ListProposalsForProject(ctx context.Context, projectID, status, actorClientID string) ([]store.Proposal, error) {
+	if actorClientID == "" {
+		return nil, rbac.ErrForbidden
+	}
+	ownerClientID, err := s.store.ProjectClientOf(ctx, projectID)
+	if err != nil {
+		return nil, err // ErrNotFound surfaces as 404 in transport
+	}
+	if ownerClientID != actorClientID {
+		return nil, rbac.ErrForbidden
+	}
 	return s.store.ListForProject(ctx, projectID, status)
 }
 

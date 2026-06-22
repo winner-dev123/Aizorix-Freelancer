@@ -135,6 +135,23 @@ func (s *Store) ProjectClientOfProposal(ctx context.Context, proposalID string) 
 	return clientID, nil
 }
 
+// ProjectClientOf returns the client_id that owns the given project. Like
+// ProjectClientOfProposal it reads the shared-schema projects table so the proposal
+// service can authorize client-side actions without a cross-service call. Returns
+// ErrNotFound if the project does not exist.
+func (s *Store) ProjectClientOf(ctx context.Context, projectID string) (string, error) {
+	var clientID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT client_id FROM projects WHERE id = $1`, projectID).Scan(&clientID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return clientID, nil
+}
+
 // GetProposal returns the proposal by id (without children).
 func (s *Store) GetProposal(ctx context.Context, id string) (*Proposal, error) {
 	p := &Proposal{}

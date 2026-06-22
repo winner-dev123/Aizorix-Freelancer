@@ -188,6 +188,8 @@ func (a *API) mapError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, "INVALID_RATING", err.Error())
 	case errors.Is(err, service.ErrAlreadyReviewed):
 		writeErr(w, http.StatusConflict, "ALREADY_REVIEWED", err.Error())
+	case errors.Is(err, service.ErrForbidden):
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "only the reviewee may respond to this review")
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "NOT_FOUND", "resource not found")
 	default:

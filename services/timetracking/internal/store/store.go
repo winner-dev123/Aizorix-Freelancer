@@ -13,6 +13,22 @@ import (
 
 var ErrNotFound = errors.New("store: not found")
 
+// SessionFreelancer returns the freelancer_id that owns the given session, so callers can
+// enforce that only that freelancer may submit slices to / stop the session. Returns
+// ErrNotFound if the session does not exist.
+func (s *Store) SessionFreelancer(ctx context.Context, sessionID string) (string, error) {
+	var freelancerID string
+	err := s.pool.QueryRow(ctx, `
+		SELECT freelancer_id FROM work_sessions WHERE id = $1`, sessionID).Scan(&freelancerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return freelancerID, nil
+}
+
 type Store struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }

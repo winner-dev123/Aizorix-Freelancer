@@ -14,6 +14,7 @@ import (
 var (
 	ErrInvalidRating   = errors.New("review: rating must be between 1 and 5")
 	ErrAlreadyReviewed = errors.New("review: reviewer already reviewed this contract")
+	ErrForbidden       = errors.New("review: not permitted")
 	ErrNotFound        = store.ErrNotFound
 )
 
@@ -121,13 +122,22 @@ func (s *Service) RecomputeReputation(ctx context.Context, userID string) error 
 	return tx.Commit(ctx)
 }
 
-// AddResponse records (or replaces) the reviewee's response to a review.
+// AddResponse records (or replaces) the reviewee's response to a review. Only the reviewee
+// (the subject of the review) may respond — any other caller gets ErrForbidden, so a third
+// party cannot post or overwrite the official response on someone else's review.
 func (s *Service) AddResponse(ctx context.Context, reviewID, responderID, response string) error {
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
+	revieweeID, err := s.store.GetRevieweeID(ctx, tx, reviewID)
+	if err != nil {
+		return err
+	}
+	if responderID != revieweeID {
+		return ErrForbidden
+	}
 	if err := s.store.UpsertResponse(ctx, tx, reviewID, responderID, response); err != nil {
 		return err
 	}

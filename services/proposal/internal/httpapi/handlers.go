@@ -152,13 +152,18 @@ func (a *API) shortlist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listByProject(w http.ResponseWriter, r *http.Request) {
+	p := principal(r)
+	if p.UserID == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return
+	}
 	projectID := r.URL.Query().Get("project_id")
 	if projectID == "" {
 		writeErr(w, http.StatusBadRequest, "VALIDATION_FAILED", "project_id query param is required")
 		return
 	}
 	status := r.URL.Query().Get("status")
-	ps, err := a.svc.ListProposalsForProject(r.Context(), projectID, status)
+	ps, err := a.svc.ListProposalsForProject(r.Context(), projectID, status, p.UserID)
 	if err != nil {
 		mapError(w, err)
 		return

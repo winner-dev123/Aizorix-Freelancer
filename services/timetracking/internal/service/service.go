@@ -9,8 +9,18 @@ import (
 	"time"
 
 	"github.com/aizorix/platform/pkg/outbox"
+	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/aizorix/platform/timetracking/internal/activity"
 	"github.com/aizorix/platform/timetracking/internal/store"
+)
+
+var (
+	// ErrNotFound re-exports the store sentinel so the transport can map a missing
+	// session to 404.
+	ErrNotFound = store.ErrNotFound
+	// ErrForbidden re-exports the rbac sentinel so the transport maps a caller that is
+	// not the session's freelancer to 403.
+	ErrForbidden = rbac.ErrForbidden
 )
 
 type Service struct {
@@ -60,7 +70,21 @@ type IncomingSlice struct {
 	IsManual       bool
 }
 
-func (s *Service) IngestSlices(ctx context.Context, contractID string, slices []IncomingSlice) (int, error) {
+// requireSessionOwner returns rbac.ErrForbidden unless caller owns the session (is its
+// freelancer). Shared by the slice-ingest and stop paths so the ownership guard stays
+// consistent; surfaces store.ErrNotFound for an unknown session.
+func (s *Service) requireSessionOwner(ctx context.Context, sessionID, caller string) error {
+	freelancerID, err := s.store.SessionFreelancer(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	return rbac.RequireOneOf(caller, freelancerID)
+}
+
+func (s *Service) IngestSlices(ctx context.Context, sessionID, contractID, caller string, slices []IncomingSlice) (int, error) {
+	if err := s.requireSessionOwner(ctx, sessionID, caller); err != nil {
+		return 0, err
+	}
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return 0, err
@@ -104,7 +128,11 @@ func (s *Service) IngestSlices(ctx context.Context, contractID string, slices []
 type CloseResult struct{ ActiveSeconds, IdleSeconds, AvgActivityPct int }
 
 // StopSession closes the session, accrues the weekly timesheet, and emits worksession.closed.
-func (s *Service) StopSession(ctx context.Context, sessionID, memo string, endedAt time.Time) (*CloseResult, error) {
+// Only the session's own freelancer may stop it (rbac.ErrForbidden otherwise).
+func (s *Service) StopSession(ctx context.Context, sessionID, caller, memo string, endedAt time.Time) (*CloseResult, error) {
+	if err := s.requireSessionOwner(ctx, sessionID, caller); err != nil {
+		return nil, err
+	}
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
 		return nil, err

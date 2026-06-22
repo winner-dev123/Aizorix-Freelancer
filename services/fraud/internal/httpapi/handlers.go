@@ -1,6 +1,12 @@
 // Package httpapi is the REST transport for the fraud service. The gateway authenticates
-// callers and injects the X-User-Id / X-User-Roles / X-Account-Type identity headers; these
-// endpoints are for trust-and-safety operators and internal signal producers.
+// callers and injects the X-User-Id / X-User-Roles / X-User-Permissions / X-Account-Type
+// identity headers; these endpoints are for trust-and-safety operators and internal signal
+// producers.
+//
+// This service is RBAC-GATED: every /v1/fraud route first builds the caller's rbac.Principal
+// from the headers and calls authorize(...) before reading or mutating state. authorize
+// returns 401 when no identity is present and 403 (via rbac.ErrForbidden) when the permission
+// is missing — authorization is a hard gate, not advisory.
 package httpapi
 
 import (
@@ -9,9 +15,11 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/aizorix/platform/fraud/internal/service"
 	"github.com/aizorix/platform/fraud/internal/store"
+	"github.com/aizorix/platform/pkg/rbac"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -45,8 +53,17 @@ type ingestReq struct {
 }
 
 func (a *API) ingestSignal(w http.ResponseWriter, r *http.Request) {
+	if !authorize(w, principal(r), "fraud.signal.ingest") {
+		return
+	}
 	var req ingestReq
 	if !decode(w, r, &req) {
+		return
+	}
+	// Bound the weight so a subject cannot drag their own score down with large negative
+	// (or inflate it with out-of-range) weights. The model expects a [0,1] contribution.
+	if req.Weight < 0 || req.Weight > 1.0 {
+		writeErr(w, http.StatusBadRequest, "INVALID_ARGUMENT", "weight must be between 0 and 1")
 		return
 	}
 	res, err := a.svc.IngestSignal(r.Context(), req.SubjectType, req.SubjectID, req.Signal, req.Weight, req.Details)
@@ -67,6 +84,9 @@ func (a *API) ingestSignal(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) listOpenCases(w http.ResponseWriter, r *http.Request) {
+	if !authorize(w, principal(r), "fraud.case.read") {
+		return
+	}
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -86,6 +106,9 @@ func (a *API) listOpenCases(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getCase(w http.ResponseWriter, r *http.Request) {
+	if !authorize(w, principal(r), "fraud.case.read") {
+		return
+	}
 	detail, err := a.svc.GetCase(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		a.mapError(w, err)
@@ -107,6 +130,9 @@ type resolveReq struct {
 }
 
 func (a *API) resolveCase(w http.ResponseWriter, r *http.Request) {
+	if !authorize(w, principal(r), "fraud.case.resolve") {
+		return
+	}
 	var req resolveReq
 	if !decode(w, r, &req) {
 		return
@@ -120,6 +146,9 @@ func (a *API) resolveCase(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) getRisk(w http.ResponseWriter, r *http.Request) {
+	if !authorize(w, principal(r), "fraud.case.read") {
+		return
+	}
 	q := r.URL.Query()
 	subjectType := q.Get("subject_type")
 	subjectID := q.Get("subject_id")
@@ -182,6 +211,45 @@ func (a *API) metrics() http.Handler {
 	})
 }
 
+// authorize enforces the fraud permission, writing 401 when no identity is present and
+// 403 (via rbac.ErrForbidden -> mapError) when the permission is missing.
+func authorize(w http.ResponseWriter, p rbac.Principal, perm string) bool {
+	if p.UserID == "" {
+		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
+		return false
+	}
+	if err := p.Require(perm); err != nil {
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "not permitted")
+		return false
+	}
+	return true
+}
+
+// principal builds the caller's rbac.Principal from the gateway-injected identity headers.
+func principal(r *http.Request) rbac.Principal {
+	var roles, perms []string
+	if raw := r.Header.Get("X-User-Roles"); raw != "" {
+		for _, role := range strings.Split(raw, ",") {
+			if role = strings.TrimSpace(role); role != "" {
+				roles = append(roles, role)
+			}
+		}
+	}
+	if raw := r.Header.Get("X-User-Permissions"); raw != "" {
+		for _, perm := range strings.Split(raw, ",") {
+			if perm = strings.TrimSpace(perm); perm != "" {
+				perms = append(perms, perm)
+			}
+		}
+	}
+	return rbac.Principal{
+		UserID:      r.Header.Get("X-User-Id"),
+		Roles:       roles,
+		Permissions: perms,
+		AccountType: r.Header.Get("X-Account-Type"),
+	}
+}
+
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, "INVALID_JSON", "could not parse request body")
@@ -209,6 +277,8 @@ func (a *API) mapError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, "INVALID_ARGUMENT", err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "NOT_FOUND", "resource not found")
+	case errors.Is(err, rbac.ErrForbidden):
+		writeErr(w, http.StatusForbidden, "FORBIDDEN", "not permitted")
 	default:
 		a.logger.Error("request failed", "err", err)
 		writeErr(w, http.StatusInternalServerError, "INTERNAL", "internal error")
