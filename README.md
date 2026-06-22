@@ -8,10 +8,10 @@ billing pipeline with fraud detection.
 > **Status:** Runs end-to-end. 21 Go modules build/vet/test clean; the full stack has been
 > driven live against real infrastructure (Postgres, Redis, MinIO/S3, Redpanda/Kafka) — identity,
 > verified-hourly-work → escrow payout, the encrypted screenshot pipeline, the event backbone,
-> and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and a
-> follow-up adversarial review of the newest code found **12 more** (**21 total, 6 critical** —
-> money-safety, cross-tenant data access, auth, data-integrity). All fixed; the highest-stakes
-> ones pinned by regression tests.
+> and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and two
+> adversarial review waves found **25 more** — **34 total, 8 critical** (money-safety, privilege
+> escalation, cross-tenant data access, auth, data-integrity). All fixed; the highest-stakes ones
+> pinned by regression tests. Each was in code that compiled and passed its unit tests.
 >
 > - **See it:** [`DEMO.md`](./DEMO.md) — visual walkthrough with real screenshots.
 > - **Run it:** `make demo` (one command; brings up infra + services + web + smoke + browser test),

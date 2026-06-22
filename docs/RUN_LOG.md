@@ -103,6 +103,36 @@ Verified **clean** by the same reviews: the double-entry ledger math, Stripe ide
 JWT/JWKS verification (alg-pinned, iss/aud/exp enforced), the WS hub concurrency/locking, the
 GMV de-duplication, and OpenSearch query injection-safety.
 
+## Adversarial review wave 2 — authorization & money correctness
+
+A second, deeper review wave targeted the bug class that compiles and unit-tests clean:
+**authorization** ("can user X act on a resource they don't own?") and money correctness. It
+swept escrow, contract, admin, fraud, review, timetracking, screenshot, user, project, and
+proposal. **13 more confirmed bugs fixed** (5 critical, 6 high, 1 medium, 1 low):
+
+| # | Sev | Area | Bug → fix |
+|---|-----|------|-----------|
+| 22 | CRIT | gateway/admin | **Privilege escalation:** gateway stripped/injected only `X-Permissions`/`X-Roles`, but services read `X-User-Permissions`/`X-User-Roles`/`X-Account-Type` — unstripped. Any user could forge `X-User-Permissions: admin.*` → full admin takeover. Now the gateway strips the full superset and injects every name from verified claims. Regression-tested. |
+| 23 | CRIT | escrow | No authz on fund/allocate/release/refund — any user could move anyone's escrow. Now money ops require the contract's **client**, reads require a **party** (via an internal parties lookup, fail-closed). |
+| 24 | CRIT | escrow | `fund` had no idempotency — replay inflated `held_cents` without a deposit. Now idempotency-keyed (migration 000013). |
+| 25 | CRIT | fraud | The entire T&S control plane had **zero** authorization. Added RBAC (`fraud.case.resolve`/`.read`/`fraud.signal.ingest`) mirroring admin. |
+| 26 | CRIT | review | No contract-party check — could review any user on any contract. Now requires reviewer∈parties, reviewee=opposite party, contract completed. |
+| 27 | HIGH | fraud | A subject could submit negative signal weights to game its own score down. Weight now bounded to [0,1]. |
+| 28 | HIGH | review | A third party could post/overwrite the official response on anyone's review. Now responder must be the reviewee. |
+| 29 | HIGH | contract | IDOR: `GET /v1/contracts/{id}` leaked any contract to any user. Now party-checked. |
+| 30 | HIGH | contract | `create` trusted a client-supplied `client_id`. Now requires `client_id == caller` (full proposal-derivation tracked as follow-up). |
+| 31 | HIGH | timetracking | No session-ownership check — could submit slices to / stop another freelancer's session. Now enforces `freelancer_id == caller`. |
+| 32 | HIGH | timetracking | `StartSession` trusted a client-supplied `contract_id`. Now requires the caller be the contract's freelancer. |
+| 33 | MED | proposal | `GET /v1/proposals?project_id=` leaked competitors' bids. Now restricted to the project owner. |
+| 34 | LOW | timetracking | Dead (accepted-but-ignored) `idempotency_key`. Removed. |
+
+Verified **CLEAN** by this wave (just as important): **admin** RBAC + atomic audit logging,
+**screenshot** decrypt-on-read authorization + device-signature verification, **contract**
+money-path authz (fund/submit/approve/dispute), **project/proposal-write/user** ownership,
+the double-entry **ledger** math + dedupe + idempotency, **JWT** verification, and the **fraud**
+scoring math. (Note: review R3 — premature publish via a raw `count>=2` — is closed in practice
+by #26, since only the two real parties can now review a contract.)
+
 ## Why this matters
 
 Bugs 3–5 are classic distributed-systems faults: a topic-name mismatch, an unmigrated schema,
