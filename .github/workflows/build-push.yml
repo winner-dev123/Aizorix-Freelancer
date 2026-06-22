@@ -148,7 +148,7 @@ jobs:
           path: sbom-${{ matrix.service }}.spdx.json
 
       - name: Trivy image scan
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
           format: sarif
@@ -166,7 +166,7 @@ jobs:
 
       - name: Fail on CRITICAL vulnerabilities (release tags only)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: aquasecurity/trivy-action@0.24.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
           format: table
