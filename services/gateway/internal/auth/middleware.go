@@ -17,13 +17,23 @@ const (
 )
 
 // trustedHeaders are identity headers that ONLY the gateway is allowed to set.
-// They are stripped from every inbound request before authentication so a client
-// can never spoof an identity to internal services (which trust these blindly).
+// They are stripped from every inbound request before authentication so a client can
+// never spoof an identity to internal services (which trust these blindly).
+//
+// This MUST be the full superset of every identity header any downstream service reads.
+// Domain services (admin/user/project/proposal/contract/analytics) read the X-User-*
+// aliases and X-Account-Type; if those are not stripped, a client can forge e.g.
+// `X-User-Permissions: admin.*` and defeat RBAC. Both naming conventions are stripped here
+// and re-injected from verified claims in injectIdentity, so the two sides cannot drift.
 var trustedHeaders = []string{
 	"X-User-Id",
 	"X-Permissions",
 	"X-Roles",
 	"X-Residency",
+	// Aliases the domain services read — equally spoofable if not stripped.
+	"X-User-Permissions",
+	"X-User-Roles",
+	"X-Account-Type",
 }
 
 // StripTrustedHeaders removes any client-supplied identity headers. Call this on
@@ -59,12 +69,21 @@ func (v *Verifier) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-// injectIdentity sets the trusted downstream identity headers from verified claims.
+// injectIdentity sets the trusted downstream identity headers from verified claims. It sets
+// BOTH naming conventions (the canonical X-Permissions/X-Roles that screenshot reads, and the
+// X-User-Permissions/X-User-Roles/X-Account-Type aliases the other domain services read) so no
+// service is ever fed an empty identity — and, paired with the strip list above, so none can be
+// spoofed. Every name written here must also appear in trustedHeaders.
 func injectIdentity(r *http.Request, c *token.Claims) {
+	perms := strings.Join(c.Permissions, ",")
+	roles := strings.Join(c.Roles, ",")
 	r.Header.Set("X-User-Id", c.UserID)
-	r.Header.Set("X-Permissions", strings.Join(c.Permissions, ","))
-	r.Header.Set("X-Roles", strings.Join(c.Roles, ","))
+	r.Header.Set("X-Permissions", perms)
+	r.Header.Set("X-Roles", roles)
 	r.Header.Set("X-Residency", c.ResidencyCountry)
+	r.Header.Set("X-User-Permissions", perms)
+	r.Header.Set("X-User-Roles", roles)
+	r.Header.Set("X-Account-Type", c.AccountType)
 }
 
 // ContextWithUserID returns a context carrying the authenticated user id — the value
