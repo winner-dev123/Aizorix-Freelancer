@@ -62,6 +62,42 @@ type ProposalView struct {
 	Milestones []store.Milestone
 }
 
+// ContractProposal is the authoritative subset the contract service needs to form a contract
+// from an accepted proposal — including the owning project's client. It is the source of truth
+// for freelancer/amount, so a contract cannot be minted with fabricated terms.
+type ContractProposal struct {
+	ProposalID      string `json:"proposal_id"`
+	ProjectID       string `json:"project_id"`
+	ProjectClientID string `json:"project_client_id"`
+	FreelancerID    string `json:"freelancer_id"`
+	Status          string `json:"status"`
+	BidAmountCents  int64  `json:"bid_amount_cents"`
+	Currency        string `json:"currency"`
+}
+
+// ProposalForContract returns the authoritative proposal fields (plus the owning project's
+// client) for the contract service to validate a contract against. No caller check — it backs
+// an internal, server-to-server endpoint that MUST NOT be exposed on the public gateway.
+func (s *Service) ProposalForContract(ctx context.Context, id string) (ContractProposal, error) {
+	p, err := s.store.GetProposal(ctx, id)
+	if err != nil {
+		return ContractProposal{}, err
+	}
+	clientID, err := s.store.ProjectClientOfProposal(ctx, id)
+	if err != nil {
+		return ContractProposal{}, err
+	}
+	return ContractProposal{
+		ProposalID:      p.ID,
+		ProjectID:       p.ProjectID,
+		ProjectClientID: clientID,
+		FreelancerID:    p.FreelancerID,
+		Status:          p.Status,
+		BidAmountCents:  p.BidAmountCents,
+		Currency:        p.Currency,
+	}, nil
+}
+
 // SubmitProposal inserts a proposal plus its milestones and answers in one transaction,
 // then enqueues a proposal.submitted event. The one-active-proposal rule is enforced by
 // the UNIQUE(project_id,freelancer_id) constraint, surfaced here as ErrDuplicateProposal.

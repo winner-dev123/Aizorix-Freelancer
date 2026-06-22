@@ -37,7 +37,20 @@ func (a *API) Routes() http.Handler {
 		r.Post("/{id}/withdraw", a.withdraw)
 		r.Post("/{id}/shortlist", a.shortlist)
 	})
+	// Internal, server-to-server only — MUST NOT be routed through the public gateway. Lets the
+	// contract service form a contract from the AUTHORITATIVE proposal (freelancer, amount, owning
+	// client, status) instead of trusting the request body. No caller identity required.
+	r.Get("/v1/internal/proposals/{id}", a.internalProposal)
 	return r
+}
+
+func (a *API) internalProposal(w http.ResponseWriter, r *http.Request) {
+	cp, err := a.svc.ProposalForContract(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		mapError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cp)
 }
 
 // ── request DTOs ────────────────────────────────────────────────────────────

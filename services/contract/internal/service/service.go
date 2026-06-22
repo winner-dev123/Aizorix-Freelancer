@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/aizorix/platform/contract/internal/proposallookup"
 	"github.com/aizorix/platform/contract/internal/store"
 	"github.com/aizorix/platform/pkg/outbox"
 	"github.com/aizorix/platform/pkg/rbac"
@@ -28,11 +29,28 @@ var (
 	ErrNotFound = store.ErrNotFound
 	// ErrForbidden re-exports the rbac sentinel so the transport maps a non-party caller to 403.
 	ErrForbidden = rbac.ErrForbidden
+	// ErrProposalRequired is returned when a contract is created without a proposal_id.
+	ErrProposalRequired = errors.New("contract: proposal_id is required")
+	// ErrProposalNotSelected is returned when the proposal is withdrawn/declined (not contractable).
+	ErrProposalNotSelected = errors.New("contract: proposal is not in a contractable state")
+	// ErrProposalMismatch is returned when the requested terms contradict the accepted proposal.
+	ErrProposalMismatch = errors.New("contract: terms do not match the accepted proposal")
 )
 
-type Service struct{ store *store.Store }
+// ProposalLookup resolves the AUTHORITATIVE proposal a contract is formed from (its freelancer,
+// bid amount, owning client, and status), so the request body cannot fabricate contract terms.
+type ProposalLookup interface {
+	Get(ctx context.Context, proposalID string) (proposallookup.Proposal, error)
+}
 
-func New(st *store.Store) *Service { return &Service{store: st} }
+type Service struct {
+	store     *store.Store
+	proposals ProposalLookup
+}
+
+func New(st *store.Store, proposals ProposalLookup) *Service {
+	return &Service{store: st, proposals: proposals}
+}
 
 // ── input DTOs ──────────────────────────────────────────────────────────────
 
@@ -61,17 +79,25 @@ type ContractView struct {
 // CreateFromProposal inserts a contract (pending_funding), the hourly settings row or the
 // fixed-price milestones, and the initial 'create' contract_events row — all in one tx.
 func (s *Service) CreateFromProposal(ctx context.Context, in CreateInput) (*store.Contract, error) {
-	if in.ClientID == in.FreelancerID || in.ClientID == "" || in.FreelancerID == "" {
+	if in.ProposalID == "" {
+		return nil, ErrProposalRequired
+	}
+	if in.ClientID == "" {
 		return nil, ErrInvalidParties
 	}
-	if in.BudgetType == "fixed" && len(in.Milestones) == 0 {
-		return nil, ErrNoMilestones
+	// Resolve the AUTHORITATIVE proposal. The request body is NOT trusted for who the freelancer
+	// is, what the contract is worth, or the platform fee — all are derived from the proposal the
+	// client accepted. Fail CLOSED: an unreachable proposal service or non-2xx denies the contract.
+	prop, err := s.proposals.Get(ctx, in.ProposalID)
+	if err != nil {
+		if errors.Is(err, proposallookup.ErrNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, ErrForbidden
 	}
-	if in.Currency == "" {
-		in.Currency = "USD"
-	}
-	if in.PlatformFeeBps == 0 {
-		in.PlatformFeeBps = 1000
+	in, err = deriveContractTerms(in, prop)
+	if err != nil {
+		return nil, err
 	}
 	tx, err := s.store.Pool().Begin(ctx)
 	if err != nil {
@@ -118,6 +144,54 @@ func (s *Service) CreateFromProposal(ctx context.Context, in CreateInput) (*stor
 		TotalAmountCents: in.TotalAmountCents, HourlyRateCents: in.HourlyRateCents,
 		WeeklyHourLimit: in.WeeklyHourLimit, Status: "pending_funding", PlatformFeeBps: in.PlatformFeeBps,
 	}, nil
+}
+
+// deriveContractTerms validates a contract request against the AUTHORITATIVE proposal and
+// overrides every term the client must not control — project, freelancer, currency, platform
+// fee, and amount. It is pure (no I/O) so the authorization/derivation rules are unit-testable.
+func deriveContractTerms(in CreateInput, prop proposallookup.Proposal) (CreateInput, error) {
+	// The caller must own the project the proposal was submitted to.
+	if prop.ProjectClientID == "" || prop.ProjectClientID != in.ClientID {
+		return in, ErrForbidden
+	}
+	// The proposal must still be contractable (not withdrawn or declined).
+	if prop.Status == "withdrawn" || prop.Status == "declined" {
+		return in, ErrProposalNotSelected
+	}
+	// Authoritative overrides — the request body cannot fabricate these.
+	in.ProjectID = prop.ProjectID
+	in.FreelancerID = prop.FreelancerID
+	in.PlatformFeeBps = 1000 // platform fee is set by the platform, never the client
+	if prop.Currency != "" {
+		in.Currency = prop.Currency
+	}
+	if in.ClientID == in.FreelancerID || in.FreelancerID == "" {
+		return in, ErrInvalidParties
+	}
+	if in.Currency == "" {
+		in.Currency = "USD"
+	}
+	// The contract value must equal the freelancer's accepted bid; the client cannot inflate it.
+	bid := prop.BidAmountCents
+	switch in.BudgetType {
+	case "fixed":
+		if len(in.Milestones) == 0 {
+			return in, ErrNoMilestones
+		}
+		var sum int64
+		for _, m := range in.Milestones {
+			sum += m.AmountCents
+		}
+		if sum != bid {
+			return in, ErrProposalMismatch // milestone breakdown must total the accepted bid
+		}
+		in.TotalAmountCents = &bid
+		in.HourlyRateCents = nil
+	case "hourly":
+		in.HourlyRateCents = &bid // the accepted bid is the hourly rate
+		in.TotalAmountCents = nil
+	}
+	return in, nil
 }
 
 // ActivateContract moves pending_funding -> active, stamps started_at, appends the

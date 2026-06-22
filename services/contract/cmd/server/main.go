@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aizorix/platform/contract/internal/httpapi"
+	"github.com/aizorix/platform/contract/internal/proposallookup"
 	"github.com/aizorix/platform/contract/internal/service"
 	"github.com/aizorix/platform/contract/internal/store"
 	"github.com/aizorix/platform/pkg/config"
@@ -30,7 +31,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
-	svc := service.New(store.New(pool))
+	// PROPOSAL_URL is the proposal service's internal base URL (server-to-server). Default matches
+	// the k8s/compose service DNS used by the other internal lookups.
+	proposals := proposallookup.New(config.Get("PROPOSAL_URL", "http://proposal:8080"))
+	svc := service.New(store.New(pool), proposals)
 	srv := &http.Server{
 		Addr:              ":" + strconv.Itoa(base.HTTPPort),
 		Handler:           httpapi.New(svc, logger).Routes(),

@@ -371,6 +371,12 @@ func mapError(w http.ResponseWriter, err error) {
 		writeErr(w, http.StatusBadRequest, "INVALID_PARTIES", "client and freelancer must differ")
 	case errors.Is(err, service.ErrNoMilestones):
 		writeErr(w, http.StatusBadRequest, "NO_MILESTONES", "fixed-price contract requires at least one milestone")
+	case errors.Is(err, service.ErrProposalRequired):
+		writeErr(w, http.StatusBadRequest, "PROPOSAL_REQUIRED", "proposal_id is required")
+	case errors.Is(err, service.ErrProposalMismatch):
+		writeErr(w, http.StatusBadRequest, "PROPOSAL_MISMATCH", "contract terms must match the accepted proposal")
+	case errors.Is(err, service.ErrProposalNotSelected):
+		writeErr(w, http.StatusConflict, "PROPOSAL_NOT_SELECTED", "proposal is not in a contractable state")
 	case errors.Is(err, service.ErrInvalidState):
 		writeErr(w, http.StatusConflict, "INVALID_STATE", "contract is not in a valid state for this operation")
 	case errors.Is(err, service.ErrInvalidMilestoneState):
