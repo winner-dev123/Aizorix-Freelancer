@@ -55,6 +55,11 @@ jobs:
     name: build • ${{ matrix.service }}
     needs: discover
     runs-on: ubuntu-latest
+    env:
+      # Image publishing requires AWS/ECR OIDC. When that secret is absent (a fork, or a repo not
+      # yet wired to AWS), gracefully skip push/sign/scan and just BUILD the image to validate the
+      # Dockerfile — so build-push doesn't show red on every push before infra is configured.
+      HAS_AWS: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -63,6 +68,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
+        if: env.HAS_AWS == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ECR_PUSH_ROLE_ARN }}
@@ -70,9 +76,11 @@ jobs:
 
       - name: Login to Amazon ECR
         id: ecr
+        if: env.HAS_AWS == 'true'
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Ensure ECR repository exists
+        if: env.HAS_AWS == 'true'
         env:
           REPO: aizorix/${{ matrix.service }}
         run: |
@@ -84,6 +92,7 @@ jobs:
 
       - name: Compute image tags
         id: meta
+        if: env.HAS_AWS == 'true'
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}
@@ -97,7 +106,8 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push
+      # Always builds (validates the Dockerfile); pushes to ECR only when AWS is configured.
+      - name: Build${{ env.HAS_AWS == 'true' && ' and push' || ' (no push — no AWS configured)' }}
         id: push
         uses: docker/build-push-action@v6
         with:
@@ -105,18 +115,20 @@ jobs:
           # (matches services/<name>/Dockerfile expectations).
           context: .
           file: services/${{ matrix.service }}/Dockerfile
-          push: true
+          push: ${{ env.HAS_AWS == 'true' }}
           provenance: mode=max
           sbom: false # SBOM produced explicitly via syft below
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.HAS_AWS == 'true' && steps.meta.outputs.tags || format('aizorix/{0}:ci', matrix.service) }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
       - name: Install cosign
+        if: env.HAS_AWS == 'true'
         uses: sigstore/cosign-installer@v3
 
       - name: Sign image (keyless)
+        if: env.HAS_AWS == 'true'
         env:
           COSIGN_EXPERIMENTAL: "1"
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -124,6 +136,7 @@ jobs:
         run: cosign sign --yes "${IMAGE}@${DIGEST}"
 
       - name: Generate SBOM (syft, SPDX JSON)
+        if: env.HAS_AWS == 'true'
         uses: anchore/sbom-action@v0
         with:
           image: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
@@ -131,6 +144,7 @@ jobs:
           output-file: sbom-${{ matrix.service }}.spdx.json
 
       - name: Attach SBOM as a cosign attestation
+        if: env.HAS_AWS == 'true'
         env:
           COSIGN_EXPERIMENTAL: "1"
           DIGEST: ${{ steps.push.outputs.digest }}
@@ -142,12 +156,14 @@ jobs:
             "${IMAGE}@${DIGEST}"
 
       - name: Upload SBOM artifact
+        if: env.HAS_AWS == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ matrix.service }}
           path: sbom-${{ matrix.service }}.spdx.json
 
       - name: Trivy image scan
+        if: env.HAS_AWS == 'true'
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
@@ -158,14 +174,14 @@ jobs:
           exit-code: "0" # report; do not block here (see gate below)
 
       - name: Upload Trivy SARIF
-        if: always()
+        if: env.HAS_AWS == 'true'
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
           category: trivy-${{ matrix.service }}
 
       - name: Fail on CRITICAL vulnerabilities (release tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: env.HAS_AWS == 'true' && startsWith(github.ref, 'refs/tags/v')
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}@${{ steps.push.outputs.digest }}
