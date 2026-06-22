@@ -1,5 +1,10 @@
 # Aizorix — Global Freelancer Marketplace
 
+[![ci-backend](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-backend.yml)
+[![ci-frontend](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-frontend.yml)
+[![ci-tracker](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-tracker.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-tracker.yml)
+[![security](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/security.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/security.yml)
+
 A production-grade, event-driven freelancer marketplace (Upwork-class) with a unique
 **verified hourly work** differentiator: a Tauri/Rust desktop tracker that captures
 encrypted screenshots every 15 minutes, measures real activity, and feeds an escrow-backed
