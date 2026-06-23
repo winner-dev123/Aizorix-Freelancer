@@ -18,7 +18,7 @@ billing pipeline with fraud detection.
 > and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and
 > **three adversarial review waves** (the HTTP services' authorization, then the under-reviewed
 > surface — desktop tracker, web, cryptography, IaC, event-correctness, schema/ledger) found **45
-> more**: **54 found / 53 fixed** (1 documented), **10 critical** (money-safety, privilege
+> more** — **54 found / 54 fixed**, **10 critical** (money-safety, privilege
 > escalation, cross-tenant data access, auth, data-integrity). The highest-stakes ones are pinned by
 > regression tests; each was in code that compiled and passed its unit tests.
 >

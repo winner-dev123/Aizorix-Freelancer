@@ -144,7 +144,7 @@ by #26, since only the two real parties can now review a contract.)
 A third wave (a 7-dimension multi-agent audit, every finding triple-verified) targeted the areas
 waves 1–2 didn't deeply cover: the **Rust desktop tracker, the Next.js frontend, cryptography,
 Terraform/IaC, end-to-end event correctness, and the DB schema/ledger**. It confirmed **18 bugs**
-(2 critical, 5 high, 8 medium, 3 low); **17 fixed**, 1 documented. Concurrency came back clean.
+(2 critical, 5 high, 8 medium, 3 low), **all 18 fixed**. Concurrency came back clean.
 
 | Sev | Area | Bug → fix |
 |-----|------|-----------|
@@ -158,7 +158,8 @@ Terraform/IaC, end-to-end event correctness, and the DB schema/ledger**. It conf
 | MED | crypto | The GCM nonce wasn't bound into the device signature (a wrong nonce verified yet left the blob undecryptable) → bound it (Go verifier + Rust signer). |
 | MED | events | Analytics dedup wasn't atomic with the rollup (crash → double-count) → claim the dedup row in the same tx. |
 | MED | schema | Ledger + audit weren't enforced append-only / `row_hash` was never populated → BEFORE-UPDATE/DELETE guard + row-hash at insert (migration 000014). |
-| MED/LOW | various | DEK-length validation, CloudFront min-TLS 1.2, relay-ordering doc, soft-delete in UserCount, k8s egress tightening, tracker pending-count, DEK-at-rest documented. |
+| MED | tracker | The per-capture DEK was queued in plaintext in local SQLite (a stolen app-data dir yielded key + ciphertext) → seal it with AES-256-GCM under a keychain-held device key at rest, unwrap transiently at upload (#15). |
+| MED/LOW | various | DEK-length validation, CloudFront min-TLS 1.2, relay-ordering doc, soft-delete in UserCount, k8s egress tightening, tracker pending-count. |
 
 These were in **never-reviewed** code (and, for the tracker/IaC, code that had **never compiled or
 been validated** — `terraform validate` and the tracker's first real CI run surfaced their own
