@@ -32,6 +32,10 @@ desktop-tracker/src-tauri/target/
 *.key
 !**/testdata/**/*.key
 secrets/
+# ...but the Terraform `secrets` MODULE is IaC (resource definitions, no secret values) and must
+# be committed, or `terraform init` fails with "Unreadable module directory".
+!infra/terraform/modules/secrets/
+!infra/terraform/modules/secrets/**
 
 # Terraform
 .terraform/
