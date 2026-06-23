@@ -48,7 +48,19 @@ func (a *API) requestSlot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	freelancer := r.Header.Get("X-User-Id")
-	slot, err := a.svc.RequestUploadSlot(r.Context(), req.ContractID, req.SessionID, req.SliceID, freelancer, req.DeviceID, req.CapturedAt, db64(req.ClientDEK))
+	// A present client_dek is an explicit offline-first request and must decode to exactly 32
+	// bytes. db64 swallows base64 errors, so validate strictly here — otherwise a malformed key
+	// silently falls back to a server-minted DEK that can never decrypt the device's ciphertext.
+	var clientDEK []byte
+	if req.ClientDEK != "" {
+		d, derr := base64.StdEncoding.DecodeString(req.ClientDEK)
+		if derr != nil || len(d) != 32 {
+			writeErr(w, http.StatusBadRequest, "VALIDATION_FAILED", "client_dek must be base64 of exactly 32 bytes")
+			return
+		}
+		clientDEK = d
+	}
+	slot, err := a.svc.RequestUploadSlot(r.Context(), req.ContractID, req.SessionID, req.SliceID, freelancer, req.DeviceID, req.CapturedAt, clientDEK)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "INTERNAL", err.Error())
 		return

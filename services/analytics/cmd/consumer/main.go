@@ -88,9 +88,9 @@ func main() {
 		// is a known approximation; a real pipeline would stamp occurred_at at emit time.
 		occurredAt := time.Now().UTC()
 
-		if err := svc.IngestEvent(ctx, eventType, occurredAt, amount, currency); err != nil {
+		if err := svc.IngestEvent(ctx, consumerGroup, m.EventID, eventType, occurredAt, amount, currency); err != nil {
 			logger.Error("ingest event failed", "topic", m.Topic, "event_type", eventType, "event_id", m.EventID, "err", err)
-			return err // redelivered; dedupe + idempotent upserts keep counts exact
+			return err // redelivered; the in-tx dedup claim keeps counts exact
 		}
 		return nil
 	}

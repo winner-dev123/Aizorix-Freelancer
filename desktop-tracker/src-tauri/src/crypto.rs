@@ -88,11 +88,14 @@ impl DeviceKey {
             self.signing.verifying_key().to_bytes())
     }
 
-    /// Sign (sha256_cipher || captured_at_rfc3339 || contract_id) exactly as the backend
-    /// re-derives it in ConfirmUpload. Returns the 64-byte signature.
-    pub fn sign_metadata(&self, sha256_cipher: &[u8; 32], captured_at_rfc3339: &str, contract_id: &str) -> Vec<u8> {
-        let mut msg = Vec::with_capacity(32 + captured_at_rfc3339.len() + contract_id.len());
+    /// Sign (sha256_cipher || gcm_nonce || captured_at_rfc3339 || contract_id) exactly as the
+    /// backend re-derives it in ConfirmUpload. The 12-byte GCM nonce is bound into the signature
+    /// so it is tamper-evident: without it, a wrong/garbage nonce would still verify yet make the
+    /// blob permanently undecryptable. Returns the 64-byte signature.
+    pub fn sign_metadata(&self, sha256_cipher: &[u8; 32], gcm_nonce: &[u8; 12], captured_at_rfc3339: &str, contract_id: &str) -> Vec<u8> {
+        let mut msg = Vec::with_capacity(32 + 12 + captured_at_rfc3339.len() + contract_id.len());
         msg.extend_from_slice(sha256_cipher);
+        msg.extend_from_slice(gcm_nonce);
         msg.extend_from_slice(captured_at_rfc3339.as_bytes());
         msg.extend_from_slice(contract_id.as_bytes());
         self.signing.sign(&msg).to_bytes().to_vec()

@@ -67,7 +67,9 @@ locally via `replace github.com/aizorix/platform/pkg => ../pkg` + the workspace.
   …) are defined here and mapped to HTTP status codes in the transport layer.
 - **Events**: name them `<aggregate>.<pastTense>` (e.g. `project.published`,
   `milestone.approved`), publish to a per-domain topic (`<aggregate>.events`), and set
-  `PartitionKey` to the aggregate id so a single aggregate's events stay ordered.
+  `PartitionKey` to the aggregate id so a single aggregate's events stay ordered (this requires a
+  **single relay replica per source DB** — `SKIP LOCKED` across replicas does not preserve
+  per-aggregate order; shard by `hash(partition_key)` to scale out).
 - **Outbox relay** runs as a **separate deployment** against each service DB; the API pod
   does not run it (keeps responsibilities — and failure domains — clean).
 

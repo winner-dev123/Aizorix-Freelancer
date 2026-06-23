@@ -150,6 +150,18 @@ impl LocalStore {
         Ok(rows.filter_map(|x| x.ok()).collect())
     }
 
+    /// Total uploads still outstanding, INCLUDING rows currently in backoff (next_attempt in the
+    /// future). For the status display, due_screenshots' `next_attempt <= now` filter would hide
+    /// retrying captures and could show 0 while billable screenshots are still queued.
+    pub fn pending_count(&self) -> Result<i64> {
+        let n: i64 = self.conn.query_row(
+            "SELECT count(*) FROM pending_screenshots WHERE upload_state != 'confirmed'",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(n)
+    }
+
     pub fn set_slot(&self, id: &str, server_id: &str, upload_url: &str, wrapped_dek_b64: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE pending_screenshots SET server_id=?2, upload_url=?3, wrapped_dek_b64=?4, upload_state='slotted' WHERE id=?1",

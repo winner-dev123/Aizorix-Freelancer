@@ -14,6 +14,8 @@ package service
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -50,6 +52,12 @@ type UploadSlot struct {
 // RequestUploadSlot generates the per-screenshot DEK, records the pending row, and presigns
 // a PUT. The device encrypts with PlaintextDEK and uploads to UploadURL.
 func (s *Service) RequestUploadSlot(ctx context.Context, contractID, sessionID, sliceID, freelancerID, deviceID string, capturedAt time.Time, clientDEK []byte) (*UploadSlot, error) {
+	// A non-empty client DEK means the device chose the offline-first path and already encrypted
+	// with it; reject a present-but-wrong-length key instead of silently minting a SERVER DEK
+	// (which would never decrypt the device's ciphertext — a permanent, silent view failure).
+	if len(clientDEK) != 0 && len(clientDEK) != 32 {
+		return nil, fmt.Errorf("client_dek must be exactly 32 bytes when provided")
+	}
 	var dek, wrapped []byte
 	var keyID string
 	var err error
@@ -66,12 +74,19 @@ func (s *Service) RequestUploadSlot(ctx context.Context, contractID, sessionID, 
 	if err != nil {
 		return nil, fmt.Errorf("dek: %w", err)
 	}
-	// Partition the key space by contract + day for efficient lifecycle/retention rules.
-	key := fmt.Sprintf("contracts/%s/%s/%s.webp.enc", contractID, capturedAt.Format("2006/01/02"), newID(capturedAt))
+	// Partition the key space by contract + day for lifecycle/retention; the filename itself is
+	// random (NOT derived from captured_at) so two slots can never collide on one S3 object.
+	suffix, err := randomKeySuffix()
+	if err != nil {
+		return nil, fmt.Errorf("key: %w", err)
+	}
+	candidateKey := fmt.Sprintf("contracts/%s/%s/%s.webp.enc", contractID, capturedAt.Format("2006/01/02"), suffix)
 
-	ssID, err := s.store.CreateSlot(ctx, store.NewSlot{
+	// CreateSlot returns the ACTUAL stored key — the candidate on a fresh insert, or the existing
+	// row's key on an idempotent retry — so the presign below always targets the right object.
+	ssID, key, err := s.store.CreateSlot(ctx, store.NewSlot{
 		ContractID: contractID, SessionID: sessionID, SliceID: sliceID, FreelancerID: freelancerID,
-		DeviceID: deviceID, CapturedAt: capturedAt, Bucket: s.bucket, Key: key,
+		DeviceID: deviceID, CapturedAt: capturedAt, Bucket: s.bucket, Key: candidateKey,
 		WrappedDEK: wrapped, KMSKeyID: keyID,
 	})
 	if err != nil {
@@ -120,8 +135,14 @@ func (s *Service) ConfirmUpload(ctx context.Context, in ConfirmInput) error {
 	if len(in.DeviceSignature) == 0 {
 		return errors.New("missing device signature")
 	}
-	msg := append(append(append([]byte{}, in.SHA256Cipher...),
-		[]byte(capturedAt.UTC().Format(time.RFC3339))...), []byte(contractID)...)
+	// Signed message: sha256_cipher || gcm_nonce || captured_at(RFC3339) || contract_id — exactly
+	// as the device builds it in sign_metadata. Binding the GCM nonce makes it tamper-evident: a
+	// wrong nonce can no longer pass verification only to leave the blob undecryptable.
+	msg := make([]byte, 0, len(in.SHA256Cipher)+len(in.GCMNonce)+32+len(contractID))
+	msg = append(msg, in.SHA256Cipher...)
+	msg = append(msg, in.GCMNonce...)
+	msg = append(msg, []byte(capturedAt.UTC().Format(time.RFC3339))...)
+	msg = append(msg, []byte(contractID)...)
 	if !ed25519.Verify(pubkey, msg, in.DeviceSignature) {
 		return errors.New("device signature verification failed")
 	}
@@ -206,16 +227,15 @@ func (s *Service) GetScreenshot(ctx context.Context, screenshotID, viewerID stri
 	}, nil
 }
 
-func newID(t time.Time) string {
-	// Deterministic-ish key fragment from capture nanos; avoids needing a UUID here.
-	n := t.UnixNano()
-	const digits = "0123456789abcdefghijklmnopqrstuvwxyz"
-	var b [13]byte
-	i := len(b)
-	for n > 0 && i > 0 {
-		i--
-		b[i] = digits[n%36]
-		n /= 36
+// randomKeySuffix returns an unguessable 16-byte hex string for the S3 object key. It MUST NOT
+// be derived from any client-supplied value (e.g. captured_at): a predictable/repeatable suffix
+// lets a device request two slots that resolve to the SAME S3 object, so the second ciphertext
+// PUT overwrites the first — and the first row's stored DEK+nonce no longer match the blob,
+// silently destroying that encrypted screenshot's evidence forever.
+func randomKeySuffix() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
 	}
-	return string(b[i:])
+	return hex.EncodeToString(b[:]), nil
 }

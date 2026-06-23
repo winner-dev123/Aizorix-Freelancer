@@ -221,7 +221,9 @@ resource "aws_cloudfront_distribution" "this" {
     cloudfront_default_certificate = var.acm_certificate_arn == "" ? true : false
     acm_certificate_arn            = var.acm_certificate_arn == "" ? null : var.acm_certificate_arn
     ssl_support_method             = var.acm_certificate_arn == "" ? null : "sni-only"
-    minimum_protocol_version       = var.acm_certificate_arn == "" ? "TLSv1" : "TLSv1.2_2021"
+    # Never permit below TLS 1.2. NOTE: the CloudFront *default* certificate ignores this and
+    # forces TLSv1 — provision an ACM cert (set acm_certificate_arn) for prod to enforce 1.2+.
+    minimum_protocol_version       = "TLSv1.2_2021"
   }
 
   tags = var.tags

@@ -33,9 +33,12 @@ function LoginForm() {
   const onSubmit = handleSubmit(async (values) => {
     try {
       const me = await login(values);
-      // The ?next= target is an arbitrary runtime string, so cast it to a Route for the
-      // (experimental) typedRoutes checker; the literal fallbacks are already typed routes.
-      const next = params.get('next') as Route | null;
+      // The ?next= target is an arbitrary runtime string. Only accept it when it is a
+      // same-origin relative path (single leading '/', not '//' which is protocol-relative
+      // and would redirect off-origin) to prevent open-redirect/phishing. The literal
+      // fallbacks are already typed routes; cast the validated path for the typedRoutes checker.
+      const raw = params.get('next');
+      const next = raw && raw.startsWith('/') && !raw.startsWith('//') ? (raw as Route) : null;
       const fallback: Route = me.role === 'admin' ? '/admin' : '/marketplace';
       router.replace(next ?? fallback);
     } catch {

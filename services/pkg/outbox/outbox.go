@@ -60,8 +60,12 @@ type Row struct {
 	Headers      map[string]string
 }
 
-// Relay polls unpublished rows and publishes them. Run one or more replicas; the
-// SELECT ... FOR UPDATE SKIP LOCKED lets multiple relays share the work safely.
+// Relay polls unpublished rows and publishes them. SELECT ... FOR UPDATE SKIP LOCKED lets
+// multiple replicas share the work for at-least-once DELIVERY. ORDERING CAVEAT: SKIP LOCKED hands
+// rows to whichever replica grabs them, so two replicas can publish same-partition-key events out
+// of outbox-id order. Run EXACTLY ONE relay replica per source database when consumers rely on
+// per-aggregate ordering (the default deployment is one relay per service DB); to scale out,
+// shard by hash(partition_key) so all events for an aggregate drain through one replica.
 type Relay struct {
 	pool interface {
 		Begin(ctx context.Context) (pgx.Tx, error)

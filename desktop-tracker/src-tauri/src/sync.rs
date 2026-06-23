@@ -85,8 +85,10 @@ async fn process_screenshot(state: &Arc<AppState>, ss: &PendingScreenshot, uploa
         }
         (resp.screenshot_id, resp.upload_url, resp.required_headers)
     } else {
-        // Slot already exists; re-read minimal info. For brevity we re-request a slot only
-        // when missing; a production build persists upload_url/headers and reuses them.
+        // Slot already exists. Re-requesting is now safe + idempotent: the server keys on slice_id
+        // and returns the SAME screenshot_id and its existing s3_key (with a fresh presigned URL),
+        // so a retry whose first PUT/confirm failed (or whose 5-min presign expired) no longer
+        // mints a duplicate screenshot row / billing event.
         let resp: SlotResp = state.api.post_json(&access, "/v1/screenshots/upload-slot", &SlotReq {
             contract_id: &ss.contract_id, session_id: &ss.session_id, slice_id: &ss.slice_id,
             device_id: &device_id, captured_at: &ss.captured_at,

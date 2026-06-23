@@ -74,8 +74,10 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = concat(var.subnet_ids, var.control_plane_subnet_ids)
     security_group_ids      = [aws_security_group.cluster.id]
     endpoint_private_access = true
-    endpoint_public_access  = true # restrict via public_access_cidrs in prod if desired
-    public_access_cidrs     = ["0.0.0.0/0"]
+    # Safe-by-default: API server is private-only unless an operator explicitly opts in to a
+    # public endpoint AND scopes the allowed CIDRs. NEVER default to 0.0.0.0/0.
+    endpoint_public_access  = var.endpoint_public_access
+    public_access_cidrs     = var.public_access_cidrs
   }
 
   # API_AND_CONFIG_MAP keeps backward compat with tooling that still reads aws-auth while

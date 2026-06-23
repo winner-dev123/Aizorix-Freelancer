@@ -32,6 +32,21 @@ func New(pool *pgxpool.Pool) *Store { return &Store{pool: pool} }
 // Pool exposes the pool for transactions spanning multiple rollup upserts.
 func (s *Store) Pool() *pgxpool.Pool { return s.pool }
 
+// ClaimEvent records this event as processed for `group` INSIDE the caller's tx, returning true
+// if THIS call claimed it (proceed with the rollups) or false if it was already processed (skip).
+// Doing the dedup claim in the same transaction as the non-idempotent rollups makes the effect
+// exactly-once: a crash can never leave the rollup applied but the event unmarked (which would
+// double-count on redelivery). It shares the consumer's `processed_events` table.
+func (s *Store) ClaimEvent(ctx context.Context, tx pgx.Tx, group, eventID string) (bool, error) {
+	ct, err := tx.Exec(ctx,
+		`INSERT INTO processed_events (consumer, event_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+		group, eventID)
+	if err != nil {
+		return false, err
+	}
+	return ct.RowsAffected() == 1, nil
+}
+
 // ── row types ─────────────────────────────────────────────────────────────────
 
 // EventCountRow is one (day, event_type) bucket from event_counts.
@@ -201,6 +216,6 @@ func (s *Store) GMVTotals(ctx context.Context) (grossCents int64, contracts int6
 // by the user service; in prod this headcount would come from that service's API.
 func (s *Store) UserCount(ctx context.Context) (int64, error) {
 	var n int64
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE deleted_at IS NULL`).Scan(&n)
 	return n, err
 }

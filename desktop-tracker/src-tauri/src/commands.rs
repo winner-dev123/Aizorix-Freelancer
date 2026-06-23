@@ -131,8 +131,8 @@ pub async fn tracking_status(state: State<'_, Arc<AppState>>) -> Result<Status> 
     let session = state.session.lock().await.clone();
     let pending = {
         let store = state.store.lock().await;
-        let now = chrono::Utc::now().timestamp();
-        store.due_screenshots(now, 10_000).map(|v| v.len() as i64).unwrap_or(0)
+        // Count ALL outstanding uploads (including those in backoff), not just those due now.
+        store.pending_count().unwrap_or(0)
     };
     Ok(Status {
         tracking: session.is_some(),

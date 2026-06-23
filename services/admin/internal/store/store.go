@@ -14,6 +14,7 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"time"
 
@@ -92,9 +93,10 @@ func (s *Store) InsertAdminAction(ctx context.Context, tx pgx.Tx, a AdminAction)
 // InsertAuditLog appends an audit_logs row inside tx. occurred_at defaults to now(); the
 // partition is selected by that default. ip is cast to inet ($6::inet); pass nil for none.
 //
-// prev_hash / row_hash are intentionally left NULL here: the tamper-evident hash chain is
-// computed asynchronously by a separate signer process that walks rows in occurred_at order
-// and back-fills the chain, so the hot write path stays cheap and contention-free.
+// row_hash is a self-contained integrity stamp over the row's content, computed at insert (cheap,
+// no extra query/contention). Paired with the append-only enforcement (migration 000014, which
+// blocks UPDATE/DELETE), it makes any edit to an audit row detectable. (prev_hash — cross-row
+// chaining — remains a dedicated signer's job; row_hash is now always populated, never NULL.)
 func (s *Store) InsertAuditLog(ctx context.Context, tx pgx.Tx, l AuditLog) error {
 	if l.Context == nil {
 		l.Context = []byte("{}")
@@ -102,12 +104,32 @@ func (s *Store) InsertAuditLog(ctx context.Context, tx pgx.Tx, l AuditLog) error
 	if l.ActorType == "" {
 		l.ActorType = "user"
 	}
+	rowHash := auditRowHash(l)
 	_, err := tx.Exec(ctx, `
 		INSERT INTO audit_logs
-			(actor_id, actor_type, action, resource_type, resource_id, ip, user_agent, context)
-		VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8)`,
-		l.ActorID, l.ActorType, l.Action, l.ResourceType, l.ResourceID, l.IP, l.UserAgent, l.Context)
+			(actor_id, actor_type, action, resource_type, resource_id, ip, user_agent, context, row_hash)
+		VALUES ($1,$2,$3,$4,$5,$6::inet,$7,$8,$9)`,
+		l.ActorID, l.ActorType, l.Action, l.ResourceType, l.ResourceID, l.IP, l.UserAgent, l.Context, rowHash)
 	return err
+}
+
+// auditRowHash deterministically hashes an audit row's content. Fields are separated by an
+// ASCII record-separator (0x1e) so distinct field boundaries can't be forged by concatenation.
+func auditRowHash(l AuditLog) []byte {
+	deref := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	h := sha256.New()
+	for _, f := range []string{l.ActorType, deref(l.ActorID), l.Action, l.ResourceType, deref(l.ResourceID), deref(l.IP), deref(l.UserAgent)} {
+		h.Write([]byte{0x1e})
+		h.Write([]byte(f))
+	}
+	h.Write([]byte{0x1e})
+	h.Write(l.Context)
+	return h.Sum(nil)
 }
 
 // ── cross-service writes ──────────────────────────────────────────────────────
@@ -149,10 +171,13 @@ type ScreenshotFilter struct {
 
 // ListScreenshots returns screenshots for audit, newest first. CROSS-SERVICE read.
 func (s *Store) ListScreenshots(ctx context.Context, f ScreenshotFilter) ([]Screenshot, error) {
+	// The screenshots table (migration 000007) has session_id + freelancer_id — NOT
+	// work_session_id / user_id (the old query 42703'd on every call). f.UserID filters the
+	// freelancer who owns the captures.
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, work_session_id, user_id, status, captured_at, s3_key
+		SELECT id, session_id, freelancer_id, status, captured_at, s3_key
 		FROM screenshots
-		WHERE ($1::uuid IS NULL OR user_id = $1)
+		WHERE ($1::uuid IS NULL OR freelancer_id = $1)
 		  AND ($2::text IS NULL OR status = $2)
 		ORDER BY captured_at DESC
 		LIMIT $3`, f.UserID, f.Status, f.Limit)

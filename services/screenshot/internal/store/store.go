@@ -25,15 +25,30 @@ type NewSlot struct {
 	KMSKeyID                                               string
 }
 
-// CreateSlot inserts the pending-upload row and its metadata shell in one tx.
-func (s *Store) CreateSlot(ctx context.Context, n NewSlot) (string, error) {
+// CreateSlot inserts the pending-upload row and its metadata shell in one tx. It returns the
+// screenshot id AND its s3_key, so the caller presigns for the object the row actually points to.
+func (s *Store) CreateSlot(ctx context.Context, n NewSlot) (id string, key string, err error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer tx.Rollback(ctx)
 
-	var id string
+	// Idempotency: a retried upload-slot for the SAME slice returns the EXISTING screenshot AND
+	// its already-stored s3_key (so the fresh presigned URL targets the right object), instead of
+	// minting a duplicate row / a new key the row wouldn't point to -> orphaned blobs + a double
+	// screenshot.ingested (double billing). The slice_id unique index (migration 000014) guards
+	// the rare concurrent race.
+	if n.SliceID != "" {
+		err = tx.QueryRow(ctx, `SELECT id, s3_key FROM screenshots WHERE slice_id = $1::uuid LIMIT 1`, n.SliceID).Scan(&id, &key)
+		if err == nil {
+			return id, key, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return "", "", err
+		}
+	}
+
 	err = tx.QueryRow(ctx, `
 		INSERT INTO screenshots
 		  (contract_id, session_id, slice_id, freelancer_id, captured_at, s3_bucket, s3_key, status, retain_until)
@@ -41,7 +56,7 @@ func (s *Store) CreateSlot(ctx context.Context, n NewSlot) (string, error) {
 		RETURNING id`,
 		n.ContractID, n.SessionID, n.SliceID, n.FreelancerID, n.CapturedAt, n.Bucket, n.Key).Scan(&id)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	// Metadata shell — wrapped DEK is stored now; integrity fields filled on confirm.
 	_, err = tx.Exec(ctx, `
@@ -49,9 +64,12 @@ func (s *Store) CreateSlot(ctx context.Context, n NewSlot) (string, error) {
 		VALUES ($1,$2, ''::bytea, $3, ''::bytea, $4, NULLIF($5,'')::uuid)`,
 		id, n.CapturedAt, n.WrappedDEK, n.KMSKeyID, n.DeviceID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return id, tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return "", "", err
+	}
+	return id, n.Key, nil
 }
 
 type Confirm struct {

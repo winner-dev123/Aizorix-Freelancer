@@ -160,7 +160,9 @@ func (a *API) ingest(w http.ResponseWriter, r *http.Request) {
 		}
 		occurredAt = t
 	}
-	if err := a.svc.IngestEvent(r.Context(), req.EventType, occurredAt, req.AmountCents, req.Currency); err != nil {
+	// Manual backfill/test path: no Kafka dedup key, so pass empty group/event id (the in-tx
+	// dedup claim is skipped for this path).
+	if err := a.svc.IngestEvent(r.Context(), "", "", req.EventType, occurredAt, req.AmountCents, req.Currency); err != nil {
 		writeErr(w, http.StatusInternalServerError, "INTERNAL", "something went wrong")
 		return
 	}

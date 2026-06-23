@@ -46,6 +46,18 @@ variable "cluster_admin_principals" {
   default     = []
 }
 
+variable "endpoint_public_access" {
+  description = "Expose the Kubernetes API server on a public endpoint. Default off (private-only). When enabling, you MUST scope public_access_cidrs."
+  type        = bool
+  default     = false
+}
+
+variable "public_access_cidrs" {
+  description = "CIDRs allowed to reach the public API endpoint (only used when endpoint_public_access=true). NEVER set 0.0.0.0/0 in production."
+  type        = list(string)
+  default     = []
+}
+
 variable "ebs_kms_key_arn" {
   description = "CMK ARN for node EBS volume + secrets envelope encryption."
   type        = string

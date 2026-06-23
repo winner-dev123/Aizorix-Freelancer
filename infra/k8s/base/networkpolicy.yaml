@@ -44,9 +44,11 @@ spec:
         - port: 9090
           protocol: TCP
   egress:
-    # DNS.
+    # DNS. Scoped to kube-system (CoreDNS) rather than all namespaces.
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
       ports:
         - port: 53
           protocol: UDP
@@ -58,10 +60,10 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: aizorix
     # VPC-internal backing services (RDS 5432, Redis 6379, MSK 9094/9098) + AWS VPC endpoints.
-    # CIDR is the VPC range; overlays may tighten this to specific data-store SGs/CIDRs.
+    # CIDR is the VPC range (10.0.0.0/16); overlays may tighten this to specific data-store SGs/CIDRs.
     - to:
         - ipBlock:
-            cidr: 10.0.0.0/8
+            cidr: 10.0.0.0/16
       ports:
         - port: 443
           protocol: TCP

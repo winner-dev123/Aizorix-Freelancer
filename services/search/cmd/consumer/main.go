@@ -1,7 +1,8 @@
 // Command consumer runs the search service's indexing consumer. It subscribes to project.events
 // and user.events and keeps the search engine's documents in sync: project.published indexes a
-// project document, project.closed removes it, and user profile.updated (re)indexes a freelancer
-// document.
+// project document, project.closed removes it, and a searchable freelancer profile.updated
+// (re)indexes a freelancer document (an unsearchable one removes it). user.events is multiplexed
+// (client profiles, user.registered, session.created), so non-freelancer events are ignored.
 //
 // The engine is the same SearchEngine the REST service uses: in dev/tests it is the OpenSearch
 // stub (whose Index/Delete are no-op log lines and whose project search falls back to Postgres
@@ -81,7 +82,11 @@ func indexEvent(ctx context.Context, svc *service.Service, m kafka.Message) erro
 	if err := json.Unmarshal(m.Value, &payload); err != nil {
 		return nil // poison payload; do not wedge the partition
 	}
-	eventType := resolveEventType(m.Topic, payload)
+	// Prefer the self-describing bus header (set by the relay); fall back to inference.
+	eventType := m.EventType
+	if eventType == "" {
+		eventType = resolveEventType(m.Topic, payload)
+	}
 
 	switch eventType {
 	case "project.published":
@@ -89,10 +94,22 @@ func indexEvent(ctx context.Context, svc *service.Service, m kafka.Message) erro
 	case "project.closed":
 		return svc.Delete(ctx, "project", stringField(payload, "project_id", "id"))
 	case "profile.updated":
-		// (Re)index the freelancer/client profile document. The user service emits one
-		// profile.updated for both profile kinds keyed on user_id.
-		return svc.Index(ctx, "freelancer", stringField(payload, "user_id", "id"), payload)
+		// user.events is multiplexed: the user service emits profile.updated for BOTH
+		// freelancer (payload has kind=freelancer + is_searchable) and client (kind=client)
+		// profiles, and the auth service emits user.registered/session.created on the same
+		// topic. Only freelancer profiles belong in the freelancers index, and only while
+		// searchable — so a non-freelancer kind is a no-op and an unsearchable freelancer is
+		// removed from the index rather than indexed.
+		if !strings.EqualFold(stringField(payload, "kind"), "freelancer") {
+			return nil
+		}
+		userID := stringField(payload, "user_id", "id")
+		if boolField(payload, "is_searchable") {
+			return svc.Index(ctx, "freelancer", userID, payload)
+		}
+		return svc.Delete(ctx, "freelancer", userID)
 	default:
+		// user.registered, session.created, client profiles, and anything else are ignored.
 		return nil
 	}
 }
@@ -120,6 +137,21 @@ func resolveEventType(topic string, m map[string]any) string {
 		return "profile.updated"
 	default:
 		return topic
+	}
+}
+
+// boolField reports whether the given key holds a truthy value. JSON decodes booleans into
+// bool, but the field may also arrive as a string ("true") or a number, so handle those too.
+func boolField(m map[string]any, key string) bool {
+	switch v := m[key].(type) {
+	case bool:
+		return v
+	case string:
+		return v == "true" || v == "1"
+	case float64:
+		return v != 0
+	default:
+		return false
 	}
 }
 

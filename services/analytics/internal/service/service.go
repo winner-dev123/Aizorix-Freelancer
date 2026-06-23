@@ -46,7 +46,7 @@ const platformFeeBps = 1000
 
 // IngestEvent applies one domain event to the rollups. occurredAt is truncated to its UTC
 // calendar day for bucketing. amountCents/currency are only consulted for money events.
-func (s *Service) IngestEvent(ctx context.Context, eventType string, occurredAt time.Time, amountCents int64, currency string) error {
+func (s *Service) IngestEvent(ctx context.Context, group, eventID, eventType string, occurredAt time.Time, amountCents int64, currency string) error {
 	day := occurredAt.UTC().Truncate(24 * time.Hour)
 	if currency == "" {
 		currency = "USD"
@@ -57,6 +57,18 @@ func (s *Service) IngestEvent(ctx context.Context, eventType string, occurredAt 
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	// Exactly-once: claim the dedup row in THIS tx, atomic with the (non-idempotent) rollups
+	// below. If already claimed, the event was counted on a prior delivery — skip.
+	if eventID != "" {
+		claimed, err := s.store.ClaimEvent(ctx, tx, group, eventID)
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			return tx.Commit(ctx)
+		}
+	}
 
 	if err := s.store.BumpEventCount(ctx, tx, day, eventType); err != nil {
 		return err

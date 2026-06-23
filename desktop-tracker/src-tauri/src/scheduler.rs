@@ -103,7 +103,7 @@ async fn capture_and_enqueue(
         let aad = format!("{}|{}", session.contract_id, captured_at_str);
         let enc = crypto::encrypt_screenshot(dek, &cap.webp, aad.as_bytes())?;
 
-        let sig = state.device.sign_metadata(&enc.sha256_cipher, &captured_at_str, &session.contract_id);
+        let sig = state.device.sign_metadata(&enc.sha256_cipher, &enc.nonce, &captured_at_str, &session.contract_id);
         let b64 = |b: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b);
 
         // Persist ciphertext to disk; the queue row references it.
@@ -132,6 +132,13 @@ async fn capture_and_enqueue(
             size_bytes: enc.ciphertext.len() as i64,
             activity_pct: 0, // server computes the authoritative %; this is a placeholder
             retries: 0,
+            // SECURITY GAP (audit wave 3, #15): the per-capture AES DEK is persisted here in
+            // plaintext base64 in local SQLite, next to the ciphertext blob — so read access to the
+            // app-data dir yields BOTH key and ciphertext until sync deletes the row, defeating the
+            // at-rest encryption. HARDENING (do in a Rust-toolchain env, with a queue-format
+            // migration + tests): wrap this value under a keychain-held at-rest key before storing
+            // and unwrap transiently in the sync path. Not done here to avoid shipping unverified
+            // crypto that could make queued DEKs unrecoverable.
             client_dek_b64: dek_b64,
         };
         state.store.lock().await.enqueue_screenshot(&pending)?;
