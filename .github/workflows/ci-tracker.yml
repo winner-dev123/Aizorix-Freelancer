@@ -76,6 +76,14 @@ jobs:
           workspaces: ${{ env.TAURI_DIR }}
           key: ${{ matrix.os }}
 
+      # tauri_build (build.rs) requires frontendDist (../dist) to exist. clippy/test only validate
+      # the Rust, so a minimal placeholder satisfies the build script without a full frontend build.
+      - name: Provide placeholder frontend dist
+        shell: bash
+        run: |
+          mkdir -p desktop-tracker/dist
+          printf '<!doctype html><title>aizorix-tracker</title>' > desktop-tracker/dist/index.html
+
       - name: cargo clippy
         working-directory: ${{ env.TAURI_DIR }}
         run: cargo clippy --all-targets --all-features -- -D warnings
