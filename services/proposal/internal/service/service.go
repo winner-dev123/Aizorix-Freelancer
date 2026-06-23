@@ -257,9 +257,10 @@ func (s *Service) ListProposalsForProject(ctx context.Context, projectID, status
 	return s.store.ListForProject(ctx, projectID, status)
 }
 
-// ListProposalsForFreelancer lists every proposal authored by a freelancer.
-func (s *Service) ListProposalsForFreelancer(ctx context.Context, freelancerID string) ([]store.Proposal, error) {
-	return s.store.ListForFreelancer(ctx, freelancerID)
+// ListProposalsForFreelancer lists proposals authored by a freelancer, bounded by
+// limit/offset (clamped in the store).
+func (s *Service) ListProposalsForFreelancer(ctx context.Context, freelancerID string, limit, offset int) ([]store.Proposal, error) {
+	return s.store.ListForFreelancer(ctx, freelancerID, limit, offset)
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
