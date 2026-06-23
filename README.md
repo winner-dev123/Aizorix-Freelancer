@@ -32,6 +32,7 @@ billing pipeline with fraud detection.
 >   `make demo-down` to tear down. Demo login: `ada@aizorix.dev` / `DemoPassw0rd!`.
 > - **What was proven + the bugs found:** [`docs/RUN_LOG.md`](./docs/RUN_LOG.md).
 > - **Design & plan:** [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) · [`ROADMAP.md`](./ROADMAP.md).
+> - **Continue on another machine:** [`docs/HANDOFF.md`](./docs/HANDOFF.md) — toolchain, current state, what's left, gotchas.
 
 ## Repository layout
 
