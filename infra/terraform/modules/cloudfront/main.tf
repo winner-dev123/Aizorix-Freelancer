@@ -46,8 +46,8 @@ variable "screenshots_bucket_domain" {
   description = "Screenshots bucket regional domain (origin)."
 }
 variable "tags" {
-  type        = map(string)
-  default     = {}
+  type    = map(string)
+  default = {}
 }
 
 data "aws_caller_identity" "current" {}
@@ -223,7 +223,7 @@ resource "aws_cloudfront_distribution" "this" {
     ssl_support_method             = var.acm_certificate_arn == "" ? null : "sni-only"
     # Never permit below TLS 1.2. NOTE: the CloudFront *default* certificate ignores this and
     # forces TLSv1 — provision an ACM cert (set acm_certificate_arn) for prod to enforce 1.2+.
-    minimum_protocol_version       = "TLSv1.2_2021"
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 
   tags = var.tags

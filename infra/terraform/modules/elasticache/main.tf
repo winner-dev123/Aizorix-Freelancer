@@ -43,8 +43,8 @@ variable "kms_key_arn" {
   description = "CMK for at-rest encryption."
 }
 variable "tags" {
-  type        = map(string)
-  default     = {}
+  type    = map(string)
+  default = {}
 }
 
 resource "aws_elasticache_subnet_group" "this" {
@@ -70,14 +70,14 @@ resource "aws_security_group" "redis" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags       = merge(var.tags, { Name = "${var.name_prefix}-redis-sg" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-redis-sg" })
   lifecycle { create_before_destroy = true }
 }
 
 # Custom parameter group: cluster-mode-enabled family + sane eviction for a cache workload.
 resource "aws_elasticache_parameter_group" "this" {
-  name_prefix = "${var.name_prefix}-redis-"
-  family      = "redis7"
+  name   = "${var.name_prefix}-redis7"
+  family = "redis7"
   parameter {
     name  = "cluster-enabled"
     value = "yes"
@@ -86,7 +86,8 @@ resource "aws_elasticache_parameter_group" "this" {
     name  = "maxmemory-policy"
     value = "allkeys-lru"
   }
-  lifecycle { create_before_destroy = true }
+  # NB: a fixed name + create_before_destroy would collide on replacement, so it's omitted;
+  # parameter changes apply in place, and the rare family-change replacement destroys first.
   tags = var.tags
 }
 
@@ -111,8 +112,8 @@ resource "aws_elasticache_replication_group" "this" {
   automatic_failover_enabled = true
   multi_az_enabled           = true
 
-  subnet_group_name  = aws_elasticache_subnet_group.this.name
-  security_group_ids = [aws_security_group.redis.id]
+  subnet_group_name    = aws_elasticache_subnet_group.this.name
+  security_group_ids   = [aws_security_group.redis.id]
   parameter_group_name = aws_elasticache_parameter_group.this.name
 
   at_rest_encryption_enabled = true

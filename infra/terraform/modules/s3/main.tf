@@ -29,8 +29,8 @@ variable "dr_kms_key_arn" {
   description = "DR-region CMK for screenshot CRR destination."
 }
 variable "tags" {
-  type        = map(string)
-  default     = {}
+  type    = map(string)
+  default = {}
 }
 
 locals {
@@ -175,9 +175,9 @@ resource "aws_iam_role" "replication" {
 
 data "aws_iam_policy_document" "replication" {
   statement {
-    sid     = "SourceRead"
-    effect  = "Allow"
-    actions = ["s3:GetReplicationConfiguration", "s3:ListBucket", "s3:GetObjectVersionForReplication", "s3:GetObjectVersionAcl", "s3:GetObjectVersionTagging"]
+    sid       = "SourceRead"
+    effect    = "Allow"
+    actions   = ["s3:GetReplicationConfiguration", "s3:ListBucket", "s3:GetObjectVersionForReplication", "s3:GetObjectVersionAcl", "s3:GetObjectVersionTagging"]
     resources = [aws_s3_bucket.screenshots.arn, "${aws_s3_bucket.screenshots.arn}/*"]
   }
   statement {

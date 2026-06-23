@@ -35,7 +35,7 @@ resource "aws_security_group" "db" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags       = merge(var.tags, { Name = "${var.name_prefix}-pg-sg" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-pg-sg" })
   lifecycle { create_before_destroy = true }
 }
 
@@ -172,9 +172,9 @@ resource "aws_db_instance" "replica" {
   kms_key_id        = var.dr_kms_key_arn
 
   # No backups on the replica; it inherits data from the primary.
-  backup_retention_period = 0
-  skip_final_snapshot     = true
-  deletion_protection     = var.deletion_protection
+  backup_retention_period    = 0
+  skip_final_snapshot        = true
+  deletion_protection        = var.deletion_protection
   auto_minor_version_upgrade = true
 
   performance_insights_enabled = true

@@ -57,7 +57,7 @@ resource "aws_security_group" "cluster" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags       = merge(var.tags, { Name = "${var.name_prefix}-eks-cluster-sg" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-eks-cluster-sg" })
   lifecycle { create_before_destroy = true }
 }
 
@@ -76,8 +76,8 @@ resource "aws_eks_cluster" "this" {
     endpoint_private_access = true
     # Safe-by-default: API server is private-only unless an operator explicitly opts in to a
     # public endpoint AND scopes the allowed CIDRs. NEVER default to 0.0.0.0/0.
-    endpoint_public_access  = var.endpoint_public_access
-    public_access_cidrs     = var.public_access_cidrs
+    endpoint_public_access = var.endpoint_public_access
+    public_access_cidrs    = var.public_access_cidrs
   }
 
   # API_AND_CONFIG_MAP keeps backward compat with tooling that still reads aws-auth while
@@ -175,7 +175,7 @@ resource "aws_security_group" "node" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags       = merge(var.tags, { Name = "${var.name_prefix}-eks-node-sg" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-eks-node-sg" })
   lifecycle { create_before_destroy = true }
 }
 
@@ -252,8 +252,8 @@ resource "aws_eks_node_group" "this" {
 
   tags = merge(var.tags, {
     # Lets the cluster-autoscaler/Karpenter discover the group.
-    "k8s.io/cluster-autoscaler/enabled"               = "true"
-    "k8s.io/cluster-autoscaler/${var.name_prefix}"    = "owned"
+    "k8s.io/cluster-autoscaler/enabled"            = "true"
+    "k8s.io/cluster-autoscaler/${var.name_prefix}" = "owned"
   })
 
   # Ignore desired_size drift so the autoscaler can manage it after creation.
@@ -297,12 +297,12 @@ resource "aws_eks_access_policy_association" "admin" {
 # wired via `service_account_role_arn` on the addon once available. Left unset here so the
 # addon installs with node-instance-role permissions as a baseline.
 resource "aws_eks_addon" "this" {
-  for_each      = toset(["vpc-cni", "coredns", "kube-proxy", "aws-ebs-csi-driver"])
-  cluster_name  = aws_eks_cluster.this.name
-  addon_name    = each.value
+  for_each     = toset(["vpc-cni", "coredns", "kube-proxy", "aws-ebs-csi-driver"])
+  cluster_name = aws_eks_cluster.this.name
+  addon_name   = each.value
   # PRESERVE keeps add-on config across upgrades; OVERWRITE resolves field conflicts on apply.
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "PRESERVE"
-  tags          = var.tags
-  depends_on    = [aws_eks_node_group.this]
+  tags                        = var.tags
+  depends_on                  = [aws_eks_node_group.this]
 }

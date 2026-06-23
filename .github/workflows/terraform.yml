@@ -39,43 +39,49 @@ jobs:
     name: fmt • validate • plan
     runs-on: ubuntu-latest
     environment: staging-infra
+    env:
+      # Terraform state lives in S3 + needs AWS OIDC. fmt/validate run offline regardless; the
+      # AWS-backed init/plan only run when the role is configured, so this stays green pre-AWS.
+      HAS_AWS: ${{ secrets.AWS_TERRAFORM_ROLE_ARN != '' }}
     defaults:
       run:
         working-directory: ${{ env.WORKDIR }}
     steps:
       - uses: actions/checkout@v4
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      # fmt + validate need no cloud credentials (offline provider init).
+      - name: terraform fmt
+        run: terraform fmt -check -recursive
+
+      - name: terraform validate
+        run: |
+          terraform init -backend=false -input=false
+          terraform validate -no-color
+
       - name: Configure AWS credentials (OIDC)
+        if: env.HAS_AWS == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: terraform fmt
-        run: terraform fmt -check -recursive
-
-      - name: terraform init
+      - name: terraform plan (with state backend)
+        id: plan
+        if: env.HAS_AWS == 'true'
         run: |
-          terraform init \
+          terraform init -reconfigure -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="key=production/terraform.tfstate" \
             -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
-
-      - name: terraform validate
-        run: terraform validate -no-color
-
-      - name: terraform plan
-        id: plan
-        run: |
           terraform plan -no-color -input=false -out=tfplan | tee plan.txt
           { echo "summary<<EOF"; tail -c 60000 plan.txt; echo "EOF"; } >> "$GITHUB_OUTPUT"
 
       - name: Comment plan on PR
-        if: github.event_name == 'pull_request'
+        if: env.HAS_AWS == 'true' && github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
@@ -97,6 +103,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment: production-infra # required reviewers + wait timer enforce the gate
+    env:
+      HAS_AWS: ${{ secrets.AWS_TERRAFORM_ROLE_ARN != '' }}
     defaults:
       run:
         working-directory: ${{ env.WORKDIR }}
@@ -104,21 +112,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
+        if: env.HAS_AWS == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
+        if: env.HAS_AWS == 'true'
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: terraform init
+      - name: terraform apply
+        if: env.HAS_AWS == 'true'
         run: |
-          terraform init \
+          terraform init -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="key=production/terraform.tfstate" \
             -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
+          terraform apply -auto-approve -input=false
 
-      - name: terraform apply
-        run: terraform apply -auto-approve -input=false
+      - name: No AWS configured — skipping apply
+        if: env.HAS_AWS != 'true'
+        run: echo "AWS_TERRAFORM_ROLE_ARN not set; skipping terraform apply (configure AWS OIDC + state secrets to enable)."

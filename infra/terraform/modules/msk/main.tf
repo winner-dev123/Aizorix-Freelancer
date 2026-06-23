@@ -44,8 +44,8 @@ variable "kms_key_arn" {
   description = "CMK for at-rest encryption."
 }
 variable "tags" {
-  type        = map(string)
-  default     = {}
+  type    = map(string)
+  default = {}
 }
 
 resource "aws_security_group" "msk" {
@@ -73,7 +73,7 @@ resource "aws_security_group" "msk" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-  tags       = merge(var.tags, { Name = "${var.name_prefix}-msk-sg" })
+  tags = merge(var.tags, { Name = "${var.name_prefix}-msk-sg" })
   lifecycle { create_before_destroy = true }
 }
 

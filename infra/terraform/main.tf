@@ -139,21 +139,21 @@ module "rds" {
     aws.dr = aws.dr
   }
 
-  name_prefix              = local.name
-  engine_version           = var.rds_engine_version
-  instance_class           = var.rds_instance_class
-  allocated_storage        = var.rds_allocated_storage
-  max_allocated_storage    = var.rds_max_allocated_storage
-  multi_az                 = var.rds_multi_az
+  name_prefix                 = local.name
+  engine_version              = var.rds_engine_version
+  instance_class              = var.rds_instance_class
+  allocated_storage           = var.rds_allocated_storage
+  max_allocated_storage       = var.rds_max_allocated_storage
+  multi_az                    = var.rds_multi_az
   create_cross_region_replica = var.rds_create_cross_region_replica
-  deletion_protection      = var.rds_deletion_protection
-  backup_retention_days    = var.rds_backup_retention_days
-  vpc_id                   = module.vpc.vpc_id
-  subnet_ids               = module.vpc.intra_subnet_ids # DB has no internet path
-  allowed_security_group_ids = [module.eks.node_security_group_id]
-  kms_key_arn              = module.kms.rds_key_arn
-  dr_kms_key_arn           = module.kms.rds_dr_key_arn
-  tags                     = local.common_tags
+  deletion_protection         = var.rds_deletion_protection
+  backup_retention_days       = var.rds_backup_retention_days
+  vpc_id                      = module.vpc.vpc_id
+  subnet_ids                  = module.vpc.intra_subnet_ids # DB has no internet path
+  allowed_security_group_ids  = [module.eks.node_security_group_id]
+  kms_key_arn                 = module.kms.rds_key_arn
+  dr_kms_key_arn              = module.kms.rds_dr_key_arn
+  tags                        = local.common_tags
 }
 
 module "elasticache" {
@@ -208,14 +208,14 @@ module "cloudfront" {
     aws.us_east_1 = aws.us_east_1
   }
 
-  name_prefix         = local.name
-  web_domain          = var.web_domain
-  acm_certificate_arn = var.acm_certificate_arn
-  assets_bucket_id            = module.s3.assets_bucket_id
-  assets_bucket_domain        = module.s3.assets_bucket_regional_domain
-  screenshots_bucket_id       = module.s3.screenshots_bucket_id
-  screenshots_bucket_domain   = module.s3.screenshots_bucket_regional_domain
-  tags                = local.common_tags
+  name_prefix               = local.name
+  web_domain                = var.web_domain
+  acm_certificate_arn       = var.acm_certificate_arn
+  assets_bucket_id          = module.s3.assets_bucket_id
+  assets_bucket_domain      = module.s3.assets_bucket_regional_domain
+  screenshots_bucket_id     = module.s3.screenshots_bucket_id
+  screenshots_bucket_domain = module.s3.screenshots_bucket_regional_domain
+  tags                      = local.common_tags
 }
 
 ############################
@@ -225,31 +225,31 @@ module "cloudfront" {
 module "secrets" {
   source = "./modules/secrets"
 
-  name_prefix       = local.name
-  services          = local.services
-  kms_key_arn       = module.kms.secrets_key_arn
-  rds_endpoint      = module.rds.endpoint
-  rds_port          = module.rds.port
+  name_prefix           = local.name
+  services              = local.services
+  kms_key_arn           = module.kms.secrets_key_arn
+  rds_endpoint          = module.rds.endpoint
+  rds_port              = module.rds.port
   rds_master_secret_arn = module.rds.master_user_secret_arn
-  redis_endpoint    = module.elasticache.primary_endpoint
-  msk_bootstrap_iam = module.msk.bootstrap_brokers_sasl_iam
-  tags              = local.common_tags
+  redis_endpoint        = module.elasticache.primary_endpoint
+  msk_bootstrap_iam     = module.msk.bootstrap_brokers_sasl_iam
+  tags                  = local.common_tags
 }
 
 module "iam" {
   source = "./modules/iam"
 
-  name_prefix           = local.name
-  services              = local.services
-  oidc_provider_arn     = module.eks.oidc_provider_arn
-  oidc_provider_url     = module.eks.oidc_provider_url
+  name_prefix            = local.name
+  services               = local.services
+  oidc_provider_arn      = module.eks.oidc_provider_arn
+  oidc_provider_url      = module.eks.oidc_provider_url
   screenshots_bucket_arn = module.s3.screenshots_bucket_arn
-  assets_bucket_arn     = module.s3.assets_bucket_arn
-  backups_bucket_arn    = module.s3.backups_bucket_arn
-  screenshots_kms_arn   = module.kms.screenshots_key_arn
-  token_signing_kms_arn = module.kms.token_signing_key_arn
-  secrets_kms_arn       = module.kms.secrets_key_arn
-  msk_cluster_arn       = module.msk.cluster_arn
-  secret_arns           = module.secrets.service_secret_arns
-  tags                  = local.common_tags
+  assets_bucket_arn      = module.s3.assets_bucket_arn
+  backups_bucket_arn     = module.s3.backups_bucket_arn
+  screenshots_kms_arn    = module.kms.screenshots_key_arn
+  token_signing_kms_arn  = module.kms.token_signing_key_arn
+  secrets_kms_arn        = module.kms.secrets_key_arn
+  msk_cluster_arn        = module.msk.cluster_arn
+  secret_arns            = module.secrets.service_secret_arns
+  tags                   = local.common_tags
 }
