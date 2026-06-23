@@ -2,8 +2,9 @@ name: ci-integration
 
 # Runs the testcontainers-backed integration tests on a real Postgres (GitHub runners ship a
 # Docker daemon). These cover the flows that unit tests can't: auth refresh-rotation/reuse,
-# the escrow money-path invariants, and the contract milestone state machine + party authz —
-# the same paths driven live in scripts/demo.ps1.
+# the escrow money-path invariants, the contract milestone state machine + party authz, and
+# messaging conversation participant authorization — the same paths driven live in
+# scripts/demo.ps1.
 on:
   pull_request:
     paths:
@@ -23,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [auth, escrow, contract]
+        service: [auth, escrow, contract, messaging]
     steps:
       - uses: actions/checkout@v4
 
