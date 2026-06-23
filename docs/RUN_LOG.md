@@ -139,6 +139,33 @@ by #26, since only the two real parties can now review a contract.)
 > 90% / \$63 under the old all-or-nothing rule). Genuinely-busy buckets still bill in full, so a
 > re-run is at most marginally more conservative — only low-effort slices bill less.
 
+## Adversarial review wave 3 — the under-reviewed surface (multi-agent audit)
+
+A third wave (a 7-dimension multi-agent audit, every finding triple-verified) targeted the areas
+waves 1–2 didn't deeply cover: the **Rust desktop tracker, the Next.js frontend, cryptography,
+Terraform/IaC, end-to-end event correctness, and the DB schema/ledger**. It confirmed **18 bugs**
+(2 critical, 5 high, 8 medium, 3 low); **17 fixed**, 1 documented. Concurrency came back clean.
+
+| Sev | Area | Bug → fix |
+|-----|------|-----------|
+| CRIT | IaC | EKS API endpoint was `0.0.0.0/0` → variable-driven, defaults private. |
+| CRIT | tracker/screenshot | A retried/expired upload re-minted screenshot rows (duplicate billing) → upload-slot is now idempotent per slice (server returns the existing row + key + a fresh presigned URL). |
+| HIGH | screenshot | S3 key was derived from a client `captured_at` (one screenshot could overwrite another's ciphertext) → random `crypto/rand` key. |
+| HIGH | events | The search consumer indexed client profiles + logins as freelancers → route by event-type + gate on `kind`/`is_searchable`. |
+| HIGH | schema | Admin screenshot listing queried non-existent columns (42703) → real columns. |
+| HIGH | schema | Range-partitioned tables had no DEFAULT partition (inserts fail once seeded months elapse) → added them (migration 000014). |
+| HIGH | web | Login `?next=` open-redirect → only same-origin relative paths honored. |
+| MED | crypto | The GCM nonce wasn't bound into the device signature (a wrong nonce verified yet left the blob undecryptable) → bound it (Go verifier + Rust signer). |
+| MED | events | Analytics dedup wasn't atomic with the rollup (crash → double-count) → claim the dedup row in the same tx. |
+| MED | schema | Ledger + audit weren't enforced append-only / `row_hash` was never populated → BEFORE-UPDATE/DELETE guard + row-hash at insert (migration 000014). |
+| MED/LOW | various | DEK-length validation, CloudFront min-TLS 1.2, relay-ordering doc, soft-delete in UserCount, k8s egress tightening, tracker pending-count, DEK-at-rest documented. |
+
+These were in **never-reviewed** code (and, for the tracker/IaC, code that had **never compiled or
+been validated** — `terraform validate` and the tracker's first real CI run surfaced their own
+bugs: an invalid `aws_elasticache_parameter_group`, a gitignored TF module, and an `AppError`
+`Serialize` impl that couldn't compile). Bringing the **8 CI workflows from "never ran" to green**
+is itself part of the verification story.
+
 ## Why this matters
 
 Bugs 3–5 are classic distributed-systems faults: a topic-name mismatch, an unmigrated schema,

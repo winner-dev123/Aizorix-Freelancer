@@ -135,15 +135,7 @@ func (s *Service) ConfirmUpload(ctx context.Context, in ConfirmInput) error {
 	if len(in.DeviceSignature) == 0 {
 		return errors.New("missing device signature")
 	}
-	// Signed message: sha256_cipher || gcm_nonce || captured_at(RFC3339) || contract_id — exactly
-	// as the device builds it in sign_metadata. Binding the GCM nonce makes it tamper-evident: a
-	// wrong nonce can no longer pass verification only to leave the blob undecryptable.
-	msg := make([]byte, 0, len(in.SHA256Cipher)+len(in.GCMNonce)+32+len(contractID))
-	msg = append(msg, in.SHA256Cipher...)
-	msg = append(msg, in.GCMNonce...)
-	msg = append(msg, []byte(capturedAt.UTC().Format(time.RFC3339))...)
-	msg = append(msg, []byte(contractID)...)
-	if !ed25519.Verify(pubkey, msg, in.DeviceSignature) {
+	if !ed25519.Verify(pubkey, confirmSignedMessage(in.SHA256Cipher, in.GCMNonce, capturedAt, contractID), in.DeviceSignature) {
 		return errors.New("device signature verification failed")
 	}
 
@@ -225,6 +217,19 @@ func (s *Service) GetScreenshot(ctx context.Context, screenshotID, viewerID stri
 		ScreenshotID: screenshotID, DownloadURL: url, WrappedDEK: v.WrappedDEK,
 		GCMNonce: v.GCMNonce, CapturedAt: v.CapturedAt, Status: v.Status, Flagged: v.Flagged,
 	}, nil
+}
+
+// confirmSignedMessage builds the Ed25519-signed confirm message byte-for-byte as the device's
+// sign_metadata does: sha256_cipher || gcm_nonce || captured_at(RFC3339 UTC) || contract_id. The
+// GCM nonce is bound in so a tampered nonce can't pass verification yet leave the blob
+// undecryptable. The byte layout MUST stay in lock-step with the tracker's crypto::sign_metadata.
+func confirmSignedMessage(sha256Cipher, gcmNonce []byte, capturedAt time.Time, contractID string) []byte {
+	msg := make([]byte, 0, len(sha256Cipher)+len(gcmNonce)+32+len(contractID))
+	msg = append(msg, sha256Cipher...)
+	msg = append(msg, gcmNonce...)
+	msg = append(msg, []byte(capturedAt.UTC().Format(time.RFC3339))...)
+	msg = append(msg, []byte(contractID)...)
+	return msg
 }
 
 // randomKeySuffix returns an unguessable 16-byte hex string for the S3 object key. It MUST NOT

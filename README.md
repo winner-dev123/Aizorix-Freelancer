@@ -3,7 +3,9 @@
 [![ci-backend](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-backend.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-backend.yml)
 [![ci-frontend](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-frontend.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-frontend.yml)
 [![ci-tracker](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-tracker.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-tracker.yml)
+[![ci-integration](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-integration.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/ci-integration.yml)
 [![security](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/security.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/security.yml)
+[![terraform](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/terraform.yml/badge.svg)](https://github.com/winner-dev123/Aizorix-Freelancer/actions/workflows/terraform.yml)
 
 A production-grade, event-driven freelancer marketplace (Upwork-class) with a unique
 **verified hourly work** differentiator: a Tauri/Rust desktop tracker that captures
@@ -13,10 +15,17 @@ billing pipeline with fraud detection.
 > **Status:** Runs end-to-end. 21 Go modules build/vet/test clean; the full stack has been
 > driven live against real infrastructure (Postgres, Redis, MinIO/S3, Redpanda/Kafka) — identity,
 > verified-hourly-work → escrow payout, the encrypted screenshot pipeline, the event backbone,
-> and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and two
-> adversarial review waves found **27 more** — **36 total, 8 critical** (money-safety, privilege
-> escalation, cross-tenant data access, auth, data-integrity). All fixed; the highest-stakes ones
-> pinned by regression tests. Each was in code that compiled and passed its unit tests.
+> and the browser UI clicking through to the database. Running it surfaced **9 real bugs**, and
+> **three adversarial review waves** (the HTTP services' authorization, then the under-reviewed
+> surface — desktop tracker, web, cryptography, IaC, event-correctness, schema/ledger) found **45
+> more**: **54 found / 53 fixed** (1 documented), **10 critical** (money-safety, privilege
+> escalation, cross-tenant data access, auth, data-integrity). The highest-stakes ones are pinned by
+> regression tests; each was in code that compiled and passed its unit tests.
+>
+> **All 8 CI workflows are green** — build/vet/golangci-lint v2/test-race/govulncheck across 21 Go
+> modules, CodeQL, gitleaks, integration tests against real Postgres, the Next.js build, all 16
+> service container images, `terraform validate`, and the Tauri tracker (clippy+test on
+> Linux/macOS/Windows).
 >
 > - **See it:** [`DEMO.md`](./DEMO.md) — visual walkthrough with real screenshots.
 > - **Run it:** `make demo` (one command; brings up infra + services + web + smoke + browser test),
