@@ -127,7 +127,7 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8 # v8 supports golangci-lint v2 (Go 1.25 compatible)
+        uses: golangci/golangci-lint-action@v9 # v8 supports golangci-lint v2 (Go 1.25 compatible)
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           working-directory: services/${{ matrix.service }}
