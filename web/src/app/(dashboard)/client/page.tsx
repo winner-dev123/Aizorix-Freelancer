@@ -29,7 +29,7 @@ type FormValues = z.infer<typeof schema>;
 
 export default function ClientDashboardPage() {
   const [open, setOpen] = useState(false);
-  const contracts = useContracts();
+  const contracts = useContracts('client');
   const createProject = useCreateProject();
 
   const {
@@ -69,7 +69,7 @@ export default function ClientDashboardPage() {
           <CardTitle>Your contracts</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {contracts.data?.items.map((c) => (
+          {contracts.data?.map((c) => (
             <Link
               key={c.id}
               href={`/contracts/${c.id}`}
@@ -77,19 +77,21 @@ export default function ClientDashboardPage() {
             >
               <div>
                 <p className="font-medium text-slate-900">Contract {c.id.slice(0, 8)}</p>
-                <p className="text-xs capitalize text-muted">
-                  {c.type} · {c.milestones.length} milestones
-                </p>
+                <p className="text-xs capitalize text-muted">{c.budget_type}</p>
               </div>
               <div className="flex items-center gap-3">
                 <Badge tone={c.status === 'active' ? 'success' : 'neutral'}>{c.status}</Badge>
                 <span className="text-sm font-semibold text-slate-900">
-                  {formatMoney(c.escrow_balance_cents, c.currency)}
+                  {c.total_amount_cents != null
+                    ? formatMoney(c.total_amount_cents, c.currency)
+                    : c.hourly_rate_cents != null
+                      ? `${formatMoney(c.hourly_rate_cents, c.currency)}/hr`
+                      : '—'}
                 </span>
               </div>
             </Link>
           ))}
-          {!contracts.isLoading && !contracts.data?.items.length && (
+          {!contracts.isLoading && !contracts.data?.length && (
             <p className="text-sm text-muted">No contracts yet. Post a project to get started.</p>
           )}
         </CardContent>

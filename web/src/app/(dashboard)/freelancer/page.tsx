@@ -24,7 +24,7 @@ const proposalTone: Record<ProposalStatus, 'neutral' | 'success' | 'warning' | '
 };
 
 export default function FreelancerDashboardPage() {
-  const contracts = useContracts();
+  const contracts = useContracts('freelancer');
   const proposals = useMyProposals();
   const earnings = useQuery({
     queryKey: queryKeys.payments.summary(),
@@ -32,7 +32,7 @@ export default function FreelancerDashboardPage() {
   });
 
   const activeContracts =
-    contracts.data?.items.filter((c) => c.status === 'active').length ?? 0;
+    contracts.data?.filter((c) => c.status === 'active').length ?? 0;
 
   return (
     <div className="space-y-8">
@@ -111,8 +111,8 @@ export default function FreelancerDashboardPage() {
           <CardTitle>Active contracts</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {contracts.data?.items
-            .filter((c) => c.status === 'active')
+          {contracts.data
+            ?.filter((c) => c.status === 'active')
             .map((c) => (
               <Link
                 key={c.id}
@@ -121,13 +121,19 @@ export default function FreelancerDashboardPage() {
               >
                 <div>
                   <p className="font-medium text-slate-900">Contract {c.id.slice(0, 8)}</p>
-                  <p className="text-xs text-muted capitalize">{c.type} · {c.status}</p>
+                  <p className="text-xs text-muted capitalize">{c.budget_type} · {c.status}</p>
                 </div>
-                <Badge tone="info">{formatMoney(c.escrow_balance_cents, c.currency)} in escrow</Badge>
+                <Badge tone="info">
+                  {c.total_amount_cents != null
+                    ? formatMoney(c.total_amount_cents, c.currency)
+                    : c.hourly_rate_cents != null
+                      ? `${formatMoney(c.hourly_rate_cents, c.currency)}/hr`
+                      : c.status}
+                </Badge>
               </Link>
             )) ?? null}
           {!contracts.isLoading &&
-            !contracts.data?.items.some((c) => c.status === 'active') && (
+            !contracts.data?.some((c) => c.status === 'active') && (
               <p className="text-sm text-muted">No active contracts.</p>
             )}
         </CardContent>

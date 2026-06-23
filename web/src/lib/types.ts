@@ -164,7 +164,13 @@ export interface SubmitProposalInput {
 // ──────────────────────────────────────────────────────────────────────────
 
 export type ContractType = 'fixed' | 'hourly';
-export type ContractStatus = 'pending' | 'active' | 'paused' | 'completed' | 'disputed' | 'cancelled';
+export type ContractStatus =
+  | 'pending_funding'
+  | 'active'
+  | 'paused'
+  | 'completed'
+  | 'disputed'
+  | 'cancelled';
 
 export type MilestoneStatus = 'pending' | 'funded' | 'submitted' | 'approved' | 'released' | 'disputed';
 
@@ -184,41 +190,35 @@ export interface Milestone {
 export interface Contract {
   id: UUID;
   project_id: UUID;
+  proposal_id?: UUID;
   client_id: UUID;
   freelancer_id: UUID;
-  type: ContractType;
+  budget_type: ContractType;
   status: ContractStatus;
   currency: Currency;
+  /** Total contract value (fixed-price contracts). */
+  total_amount_cents?: number | null;
   /** Agreed hourly rate (hourly contracts only). */
-  hourly_rate_cents?: number;
+  hourly_rate_cents?: number | null;
   /** Weekly hour cap for hourly contracts. */
-  weekly_limit_hours?: number;
-  milestones: Milestone[];
-  escrow_balance_cents: number;
-  created_at: ISODateString;
-  activated_at?: ISODateString | null;
+  weekly_hour_limit?: number | null;
+  platform_fee_bps?: number;
+  /** Present on the detail response (GET /v1/contracts/{id}); omitted in list responses. */
+  milestones?: Milestone[];
+  started_at?: ISODateString | null;
+  ended_at?: ISODateString | null;
+  end_reason?: string | null;
 }
 
-/** A single entry on the contract activity timeline. */
-export type ContractEventKind =
-  | 'created'
-  | 'activated'
-  | 'milestone_funded'
-  | 'milestone_submitted'
-  | 'milestone_approved'
-  | 'escrow_released'
-  | 'paused'
-  | 'completed'
-  | 'disputed'
-  | 'message';
-
+/** A single entry on the contract activity timeline (an event-sourced state transition,
+ *  as returned by GET /v1/contracts/{id}/events). */
 export interface ContractEvent {
-  id: UUID;
-  kind: ContractEventKind;
-  at: ISODateString;
-  actor_name?: string;
-  summary: string;
-  amount_cents?: number;
+  event: string;
+  from_status?: string | null;
+  to_status: string;
+  actor_id?: string | null;
+  payload?: Record<string, unknown>;
+  created_at: ISODateString;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
