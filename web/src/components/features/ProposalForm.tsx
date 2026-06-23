@@ -16,7 +16,7 @@ const schema = z.object({
     .min(50, 'Cover letter must be at least 50 characters')
     .max(5000),
   bid_rate: z.coerce.number().positive('Enter a positive amount'),
-  estimated_hours: z.coerce.number().int().positive().optional(),
+  estimated_days: z.coerce.number().int().positive().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -49,8 +49,9 @@ export function ProposalForm({
     onSubmit({
       project_id: projectId,
       cover_letter: values.cover_letter,
-      bid_rate_cents: Math.round(values.bid_rate * 100),
-      estimated_hours: values.estimated_hours,
+      bid_amount_cents: Math.round(values.bid_rate * 100),
+      currency: 'USD',
+      estimated_duration_days: values.estimated_days,
     });
   });
 
@@ -81,10 +82,10 @@ export function ProposalForm({
           <Input
             type="number"
             min="1"
-            label="Estimated hours/week"
-            placeholder="20"
-            error={errors.estimated_hours?.message}
-            {...register('estimated_hours')}
+            label="Estimated duration (days)"
+            placeholder="30"
+            error={errors.estimated_days?.message}
+            {...register('estimated_days')}
           />
         )}
       </div>

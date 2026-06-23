@@ -11,7 +11,7 @@ import { useContracts } from '@/hooks/useContract';
 import { useMyProposals } from '@/hooks/useProjects';
 import { paymentsApi } from '@/lib/api/payments';
 import { queryKeys } from '@/hooks/queryKeys';
-import { formatMoney, formatRelative } from '@/lib/format';
+import { formatMoney } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
 import type { ProposalStatus } from '@/lib/types';
 
@@ -76,18 +76,16 @@ export default function FreelancerDashboardPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>Submitted</TH>
                   <TH>Bid</TH>
                   <TH>Status</TH>
                   <TH>Connects</TH>
                 </TR>
               </THead>
               <TBody>
-                {proposals.data?.items.length ? (
-                  proposals.data.items.map((p) => (
+                {proposals.data?.length ? (
+                  proposals.data.map((p) => (
                     <TR key={p.id}>
-                      <TD>{formatRelative(p.created_at)}</TD>
-                      <TD>{formatMoney(p.bid_rate_cents)}</TD>
+                      <TD>{formatMoney(p.bid_amount_cents, p.currency)}</TD>
                       <TD>
                         <Badge tone={proposalTone[p.status]}>{p.status}</Badge>
                       </TD>
@@ -95,7 +93,7 @@ export default function FreelancerDashboardPage() {
                     </TR>
                   ))
                 ) : (
-                  <EmptyRow colSpan={4}>
+                  <EmptyRow colSpan={3}>
                     No proposals yet.{' '}
                     <Link href="/marketplace" className="text-brand-600 hover:underline">
                       Find work

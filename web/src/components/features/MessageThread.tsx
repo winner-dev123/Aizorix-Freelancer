@@ -46,7 +46,7 @@ export function MessageThread({ threadId, currentUserId }: MessageThreadProps) {
           const mine = m.sender_id === currentUserId || m.sender_id === 'me';
           return (
             <div key={m.id} className={cn('flex gap-2', mine && 'flex-row-reverse')}>
-              {!mine && <Avatar name={m.sender_name} size={28} />}
+              {!mine && <Avatar name={m.sender_id} size={28} />}
               <div
                 className={cn(
                   'max-w-[75%] rounded-2xl px-3 py-2 text-sm',
@@ -62,7 +62,7 @@ export function MessageThread({ threadId, currentUserId }: MessageThreadProps) {
                     mine ? 'text-brand-100' : 'text-muted',
                   )}
                 >
-                  {formatTime(m.sent_at)}
+                  {formatTime(m.created_at)}
                 </span>
               </div>
             </div>

@@ -143,19 +143,20 @@ export interface Proposal {
   project_id: UUID;
   freelancer_id: UUID;
   cover_letter: string;
-  /** Bid rate: hourly cents/hour for hourly projects, total for fixed. */
-  bid_rate_cents: number;
-  estimated_hours?: number;
+  /** Total bid (cents) for fixed projects; hourly rate (cents/hour) for hourly. */
+  bid_amount_cents: number;
+  currency: Currency;
+  estimated_duration_days?: number | null;
   status: ProposalStatus;
   connects_spent: number;
-  created_at: ISODateString;
 }
 
 export interface SubmitProposalInput {
   project_id: UUID;
   cover_letter: string;
-  bid_rate_cents: number;
-  estimated_hours?: number;
+  bid_amount_cents: number;
+  currency: Currency;
+  estimated_duration_days?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -333,20 +334,23 @@ export interface MessageAttachment {
 
 export interface Message {
   id: UUID;
-  thread_id: UUID;
+  conversation_id: UUID;
   sender_id: UUID;
-  sender_name: string;
-  body: string;
-  attachments?: MessageAttachment[];
-  sent_at: ISODateString;
-  read_at?: ISODateString | null;
+  /** Null for non-text messages (e.g. system/file kinds). */
+  body?: string | null;
+  kind: string;
+  created_at: ISODateString;
+  edited_at?: ISODateString | null;
 }
 
+/** A conversation, as returned by GET /v1/messaging/conversations. The backend does not
+ *  (yet) enrich this with participant names, unread counts, or a last-message preview —
+ *  those would need a server-side join against the user service + message aggregation. */
 export interface MessageThread {
   id: UUID;
-  contract_id?: UUID;
-  participant_ids: UUID[];
-  participant_names: string[];
-  last_message?: Message;
-  unread_count: number;
+  contract_id?: UUID | null;
+  project_id?: UUID | null;
+  subject?: string | null;
+  last_message_at?: ISODateString | null;
+  created_at: ISODateString;
 }
