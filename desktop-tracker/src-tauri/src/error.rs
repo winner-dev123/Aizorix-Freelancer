@@ -25,7 +25,9 @@ pub enum AppError {
 
 // Serialize as { code, message } so the frontend can map codes to UX.
 impl Serialize for AppError {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+    // NB: fully-qualified std Result — the crate's `Result<T>` alias (below) is single-arg and
+    // would shadow this to a compile error.
+    fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let code = match self {
             AppError::Network(_) => "NETWORK",
