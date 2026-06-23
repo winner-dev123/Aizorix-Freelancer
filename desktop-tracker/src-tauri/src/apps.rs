@@ -34,7 +34,11 @@ pub fn active_app() -> ActiveApp {
                 } else {
                     String::new()
                 };
-                ActiveApp { app_name, window_title: title, browser_url_host: host }
+                ActiveApp {
+                    app_name,
+                    window_title: title,
+                    browser_url_host: host,
+                }
             }
             Err(_) => ActiveApp::default(),
         }
@@ -44,9 +48,11 @@ pub fn active_app() -> ActiveApp {
 #[cfg(not(feature = "mock-capture"))]
 fn is_browser(app: &str) -> bool {
     let a = app.to_lowercase();
-    ["chrome", "firefox", "safari", "edge", "brave", "opera", "chromium", "arc"]
-        .iter()
-        .any(|b| a.contains(b))
+    [
+        "chrome", "firefox", "safari", "edge", "brave", "opera", "chromium", "arc",
+    ]
+    .iter()
+    .any(|b| a.contains(b))
 }
 
 /// Heuristic: many browsers put "Page Title — Domain" or expose a host in the title bar.
@@ -54,7 +60,10 @@ fn is_browser(app: &str) -> bool {
 #[cfg(not(feature = "mock-capture"))]
 fn extract_host_from_title(title: &str) -> String {
     for token in title.split(|c: char| c.is_whitespace() || c == '—' || c == '-' || c == '|') {
-        let t = token.trim().trim_start_matches("https://").trim_start_matches("http://");
+        let t = token
+            .trim()
+            .trim_start_matches("https://")
+            .trim_start_matches("http://");
         if t.contains('.') && !t.contains('/') && !t.contains(' ') && t.len() > 3 {
             return t.split('/').next().unwrap_or("").to_string();
         }

@@ -41,7 +41,10 @@ pub struct Sample {
 
 impl ActivityEngine {
     pub fn new() -> Self {
-        Self { counters: Arc::new(Counters::default()), started: Instant::now() }
+        Self {
+            counters: Arc::new(Counters::default()),
+            started: Instant::now(),
+        }
     }
 
     /// Spawn the global input listener. On platforms requiring accessibility permission
@@ -135,5 +138,8 @@ fn touch(counters: &Arc<Counters>) {
 
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
 }

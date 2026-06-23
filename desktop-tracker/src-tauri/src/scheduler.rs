@@ -47,7 +47,16 @@ async fn run(state: Arc<AppState>) {
         let interval = Duration::from_secs(session.capture_interval_secs.max(SAMPLE_SECONDS));
         if elapsed_in_slice >= interval {
             let slice_end = chrono::Utc::now();
-            if let Err(e) = capture_and_enqueue(&state, &session, &samples, slice_start, slice_end, &state.activity).await {
+            if let Err(e) = capture_and_enqueue(
+                &state,
+                &session,
+                &samples,
+                slice_start,
+                slice_end,
+                &state.activity,
+            )
+            .await
+            {
                 tracing::error!("capture failed: {e}");
             }
             samples.clear();
@@ -57,7 +66,8 @@ async fn run(state: Arc<AppState>) {
             // Small jitter so many trackers don't hit the backend at the same quarter-hour.
             let mut b = [0u8; 1];
             rand::rngs::OsRng.fill_bytes(&mut b);
-            let jitter = Duration::from_millis((b[0] as u64) * CAPTURE_JITTER.as_millis() as u64 / 255);
+            let jitter =
+                Duration::from_millis((b[0] as u64) * CAPTURE_JITTER.as_millis() as u64 / 255);
             tokio::time::sleep(jitter).await;
         }
     }
@@ -80,7 +90,10 @@ async fn capture_and_enqueue(
 
     // Skip the screenshot blob entirely for a fully idle slice (cost + privacy); the slice is
     // still recorded with zero activity so the server/fraud sees the gap.
-    let idle = activity.is_idle(IDLE_THRESHOLD) && samples.iter().all(|s| s.keyboard_count == 0 && s.mouse_count == 0);
+    let idle = activity.is_idle(IDLE_THRESHOLD)
+        && samples
+            .iter()
+            .all(|s| s.keyboard_count == 0 && s.mouse_count == 0);
 
     let app = crate::apps::active_app();
     let local_id = uuid::Uuid::new_v4().to_string();
@@ -103,7 +116,12 @@ async fn capture_and_enqueue(
         let aad = format!("{}|{}", session.contract_id, captured_at_str);
         let enc = crypto::encrypt_screenshot(dek, &cap.webp, aad.as_bytes())?;
 
-        let sig = state.device.sign_metadata(&enc.sha256_cipher, &enc.nonce, &captured_at_str, &session.contract_id);
+        let sig = state.device.sign_metadata(
+            &enc.sha256_cipher,
+            &enc.nonce,
+            &captured_at_str,
+            &session.contract_id,
+        );
         let b64 = |b: &[u8]| base64::Engine::encode(&base64::engine::general_purpose::STANDARD, b);
 
         // Persist ciphertext to disk; the queue row references it.

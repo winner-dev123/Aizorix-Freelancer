@@ -31,7 +31,9 @@ pub fn capture_primary() -> Result<Capture> {
             .max_by_key(|m| (m.width() as u64) * (m.height() as u64))
             .ok_or_else(|| AppError::Capture("no monitor found".into()))?;
 
-        let img = monitor.capture_image().map_err(|e| AppError::Capture(e.to_string()))?;
+        let img = monitor
+            .capture_image()
+            .map_err(|e| AppError::Capture(e.to_string()))?;
         let (w, h) = (img.width(), img.height());
         let rgba = RgbaImage::from_raw(w, h, img.into_raw())
             .ok_or_else(|| AppError::Capture("bad framebuffer".into()))?;
@@ -66,8 +68,8 @@ fn encode(img: image::DynamicImage) -> Result<Capture> {
     // Perceptual hash before compression for stability.
     let hasher = img_hash::HasherConfig::new().hash_size(8, 8).to_hasher();
     let phash = hasher.hash_image(&img);
-    let phash_b64 = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD, phash.as_bytes());
+    let phash_b64 =
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, phash.as_bytes());
 
     let mut buf = Cursor::new(Vec::new());
     // image's WebP encoder is lossless by default; for lossy use the `webp` crate. We tune
@@ -83,12 +85,22 @@ fn encode(img: image::DynamicImage) -> Result<Capture> {
     .map_err(|e| AppError::Capture(format!("webp encode: {e}")))?;
 
     let _ = WEBP_QUALITY; // honored by the lossy `webp` crate path in production builds
-    Ok(Capture { webp: buf.into_inner(), width, height, phash_b64 })
+    Ok(Capture {
+        webp: buf.into_inner(),
+        width,
+        height,
+        phash_b64,
+    })
 }
 
 #[cfg(feature = "mock-capture")]
 fn mock_capture() -> Result<Capture> {
     // 16x16 deterministic image so CI can exercise the full pipeline without a display.
     let bytes: Vec<u8> = (0..(16 * 16 * 4)).map(|i| (i % 251) as u8).collect();
-    Ok(Capture { webp: bytes, width: 16, height: 16, phash_b64: "AAAAAAAAAAA=".into() })
+    Ok(Capture {
+        webp: bytes,
+        width: 16,
+        height: 16,
+        phash_b64: "AAAAAAAAAAA=".into(),
+    })
 }

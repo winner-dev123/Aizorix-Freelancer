@@ -17,13 +17,13 @@ pub struct LocalStore {
 
 #[derive(Clone, Debug)]
 pub struct PendingScreenshot {
-    pub id: String,             // local id
+    pub id: String,                // local id
     pub server_id: Option<String>, // assigned after RequestUploadSlot
     pub contract_id: String,
     pub session_id: String,
     pub slice_id: String,
-    pub captured_at: String,    // RFC3339
-    pub blob_path: String,      // path to ciphertext on disk
+    pub captured_at: String, // RFC3339
+    pub blob_path: String,   // path to ciphertext on disk
     pub nonce_b64: String,
     pub sha256_b64: String,
     pub signature_b64: String,
@@ -44,7 +44,7 @@ pub struct PendingSlice {
     pub id: String,
     pub session_id: String,
     pub contract_id: String,
-    pub payload_json: String,   // the SubmitSlices DTO for this slice
+    pub payload_json: String, // the SubmitSlices DTO for this slice
 }
 
 impl LocalStore {
@@ -108,7 +108,9 @@ impl LocalStore {
         Ok(())
     }
 
-    pub fn blob_dir(&self) -> &Path { &self.blob_dir }
+    pub fn blob_dir(&self) -> &Path {
+        &self.blob_dir
+    }
 
     /// Persist a freshly captured + encrypted screenshot to the queue.
     pub fn enqueue_screenshot(&self, s: &PendingScreenshot) -> Result<()> {
@@ -126,23 +128,39 @@ impl LocalStore {
     }
 
     /// Screenshots ready for an upload attempt (any non-confirmed, attempt time elapsed).
-    pub fn due_screenshots(&self, now_unix: i64, limit: i64) -> Result<Vec<(PendingScreenshot, String)>> {
+    pub fn due_screenshots(
+        &self,
+        now_unix: i64,
+        limit: i64,
+    ) -> Result<Vec<(PendingScreenshot, String)>> {
         let mut stmt = self.conn.prepare(
             r#"SELECT id, server_id, contract_id, session_id, slice_id, captured_at, blob_path,
                       nonce_b64, sha256_b64, signature_b64, phash_b64, width, height, size_bytes,
                       activity_pct, retries, upload_state, coalesce(client_dek_b64,'')
                FROM pending_screenshots
                WHERE upload_state != 'confirmed' AND next_attempt <= ?1
-               ORDER BY created_at LIMIT ?2"#)?;
+               ORDER BY created_at LIMIT ?2"#,
+        )?;
         let rows = stmt.query_map(params![now_unix, limit], |r| {
             Ok((
                 PendingScreenshot {
-                    id: r.get(0)?, server_id: r.get(1)?, contract_id: r.get(2)?,
-                    session_id: r.get(3)?, slice_id: r.get(4)?, captured_at: r.get(5)?,
-                    blob_path: r.get(6)?, nonce_b64: r.get(7)?, sha256_b64: r.get(8)?,
-                    signature_b64: r.get(9)?, phash_b64: r.get(10)?, width: r.get(11)?,
-                    height: r.get(12)?, size_bytes: r.get(13)?, activity_pct: r.get(14)?,
-                    retries: r.get(15)?, client_dek_b64: r.get(17)?,
+                    id: r.get(0)?,
+                    server_id: r.get(1)?,
+                    contract_id: r.get(2)?,
+                    session_id: r.get(3)?,
+                    slice_id: r.get(4)?,
+                    captured_at: r.get(5)?,
+                    blob_path: r.get(6)?,
+                    nonce_b64: r.get(7)?,
+                    sha256_b64: r.get(8)?,
+                    signature_b64: r.get(9)?,
+                    phash_b64: r.get(10)?,
+                    width: r.get(11)?,
+                    height: r.get(12)?,
+                    size_bytes: r.get(13)?,
+                    activity_pct: r.get(14)?,
+                    retries: r.get(15)?,
+                    client_dek_b64: r.get(17)?,
                 },
                 r.get::<_, String>(16)?,
             ))
@@ -162,24 +180,35 @@ impl LocalStore {
         Ok(n)
     }
 
-    pub fn set_slot(&self, id: &str, server_id: &str, upload_url: &str, wrapped_dek_b64: &str) -> Result<()> {
+    pub fn set_slot(
+        &self,
+        id: &str,
+        server_id: &str,
+        upload_url: &str,
+        wrapped_dek_b64: &str,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE pending_screenshots SET server_id=?2, upload_url=?3, wrapped_dek_b64=?4, upload_state='slotted' WHERE id=?1",
             params![id, server_id, upload_url, wrapped_dek_b64])?;
         Ok(())
     }
     pub fn set_state(&self, id: &str, state: &str) -> Result<()> {
-        self.conn.execute("UPDATE pending_screenshots SET upload_state=?2 WHERE id=?1", params![id, state])?;
+        self.conn.execute(
+            "UPDATE pending_screenshots SET upload_state=?2 WHERE id=?1",
+            params![id, state],
+        )?;
         Ok(())
     }
     pub fn backoff_screenshot(&self, id: &str, next_attempt_unix: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE pending_screenshots SET retries=retries+1, next_attempt=?2 WHERE id=?1",
-            params![id, next_attempt_unix])?;
+            params![id, next_attempt_unix],
+        )?;
         Ok(())
     }
     pub fn delete_screenshot(&self, id: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM pending_screenshots WHERE id=?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM pending_screenshots WHERE id=?1", params![id])?;
         Ok(())
     }
 
@@ -193,25 +222,42 @@ impl LocalStore {
     pub fn unsynced_slices(&self, limit: i64) -> Result<Vec<PendingSlice>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, contract_id, payload_json FROM pending_slices WHERE synced=0 ORDER BY created_at LIMIT ?1")?;
-        let rows = stmt.query_map(params![limit], |r| Ok(PendingSlice {
-            id: r.get(0)?, session_id: r.get(1)?, contract_id: r.get(2)?, payload_json: r.get(3)?,
-        }))?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(PendingSlice {
+                id: r.get(0)?,
+                session_id: r.get(1)?,
+                contract_id: r.get(2)?,
+                payload_json: r.get(3)?,
+            })
+        })?;
         Ok(rows.filter_map(|x| x.ok()).collect())
     }
     pub fn mark_slice_synced(&self, id: &str) -> Result<()> {
-        self.conn.execute("UPDATE pending_slices SET synced=1 WHERE id=?1", params![id])?;
+        self.conn.execute(
+            "UPDATE pending_slices SET synced=1 WHERE id=?1",
+            params![id],
+        )?;
         Ok(())
     }
 
     pub fn save_kv(&self, k: &str, v: &str) -> Result<()> {
-        self.conn.execute("INSERT OR REPLACE INTO session_state (k,v) VALUES (?1,?2)", params![k, v])?;
+        self.conn.execute(
+            "INSERT OR REPLACE INTO session_state (k,v) VALUES (?1,?2)",
+            params![k, v],
+        )?;
         Ok(())
     }
     pub fn load_kv(&self, k: &str) -> Result<Option<String>> {
-        Ok(self.conn.query_row("SELECT v FROM session_state WHERE k=?1", params![k], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn
+            .query_row("SELECT v FROM session_state WHERE k=?1", params![k], |r| {
+                r.get(0)
+            })
+            .optional()?)
     }
     pub fn delete_kv(&self, k: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM session_state WHERE k=?1", params![k])?;
+        self.conn
+            .execute("DELETE FROM session_state WHERE k=?1", params![k])?;
         Ok(())
     }
 }

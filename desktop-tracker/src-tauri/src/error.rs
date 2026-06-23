@@ -45,13 +45,19 @@ impl Serialize for AppError {
 }
 
 impl From<rusqlite::Error> for AppError {
-    fn from(e: rusqlite::Error) -> Self { AppError::Storage(e.to_string()) }
+    fn from(e: rusqlite::Error) -> Self {
+        AppError::Storage(e.to_string())
+    }
 }
 impl From<reqwest::Error> for AppError {
-    fn from(e: reqwest::Error) -> Self { AppError::Network(e.to_string()) }
+    fn from(e: reqwest::Error) -> Self {
+        AppError::Network(e.to_string())
+    }
 }
 impl From<anyhow::Error> for AppError {
-    fn from(e: anyhow::Error) -> Self { AppError::Internal(e.to_string()) }
+    fn from(e: anyhow::Error) -> Self {
+        AppError::Internal(e.to_string())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;

@@ -21,16 +21,28 @@ pub struct Tokens {
 }
 
 #[derive(Serialize)]
-struct LoginReq<'a> { email: &'a str, password: &'a str, device_fingerprint: &'a str }
+struct LoginReq<'a> {
+    email: &'a str,
+    password: &'a str,
+    device_fingerprint: &'a str,
+}
 
 #[derive(Serialize)]
-struct RefreshReq<'a> { refresh_token: &'a str }
+struct RefreshReq<'a> {
+    refresh_token: &'a str,
+}
 
 #[derive(Serialize)]
-struct EnrollReq<'a> { fingerprint: &'a str, display_name: &'a str, attestation_pubkey: &'a str }
+struct EnrollReq<'a> {
+    fingerprint: &'a str,
+    display_name: &'a str,
+    attestation_pubkey: &'a str,
+}
 
 #[derive(Deserialize)]
-struct EnrollResp { device_id: String }
+struct EnrollResp {
+    device_id: String,
+}
 
 impl ApiClient {
     pub fn new() -> Self {
@@ -39,13 +51,23 @@ impl ApiClient {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("http client");
-        Self { http, base: API_BASE.to_string() }
+        Self {
+            http,
+            base: API_BASE.to_string(),
+        }
     }
 
     pub async fn login(&self, email: &str, password: &str, fingerprint: &str) -> Result<Tokens> {
-        let resp = self.http.post(format!("{}/v1/auth/login", self.base))
-            .json(&LoginReq { email, password, device_fingerprint: fingerprint })
-            .send().await?;
+        let resp = self
+            .http
+            .post(format!("{}/v1/auth/login", self.base))
+            .json(&LoginReq {
+                email,
+                password,
+                device_fingerprint: fingerprint,
+            })
+            .send()
+            .await?;
         if !resp.status().is_success() {
             return Err(AppError::Unauthenticated);
         }
@@ -56,8 +78,12 @@ impl ApiClient {
 
     pub async fn refresh(&self) -> Result<Tokens> {
         let rt = load_refresh()?.ok_or(AppError::Unauthenticated)?;
-        let resp = self.http.post(format!("{}/v1/auth/refresh", self.base))
-            .json(&RefreshReq { refresh_token: &rt }).send().await?;
+        let resp = self
+            .http
+            .post(format!("{}/v1/auth/refresh", self.base))
+            .json(&RefreshReq { refresh_token: &rt })
+            .send()
+            .await?;
         if !resp.status().is_success() {
             return Err(AppError::Unauthenticated);
         }
@@ -71,21 +97,40 @@ impl ApiClient {
     /// the tracker persists and sends on every upload-slot / confirm request so the screenshot
     /// service can verify signatures against the enrolled key. Idempotent server-side (upsert by
     /// user_id + fingerprint), so it is safe to call on every login.
-    pub async fn enroll_device(&self, access: &str, fingerprint: &str, pubkey_b64: &str) -> Result<String> {
-        let resp: EnrollResp = self.post_json(access, "/v1/users/me/devices", &EnrollReq {
-            fingerprint,
-            display_name: "Aizorix Desktop Tracker",
-            attestation_pubkey: pubkey_b64,
-        }).await?;
+    pub async fn enroll_device(
+        &self,
+        access: &str,
+        fingerprint: &str,
+        pubkey_b64: &str,
+    ) -> Result<String> {
+        let resp: EnrollResp = self
+            .post_json(
+                access,
+                "/v1/users/me/devices",
+                &EnrollReq {
+                    fingerprint,
+                    display_name: "Aizorix Desktop Tracker",
+                    attestation_pubkey: pubkey_b64,
+                },
+            )
+            .await?;
         Ok(resp.device_id)
     }
 
     /// POST JSON with bearer auth, returning the parsed response.
     pub async fn post_json<TReq: Serialize, TResp: for<'de> Deserialize<'de>>(
-        &self, access: &str, path: &str, body: &TReq,
+        &self,
+        access: &str,
+        path: &str,
+        body: &TReq,
     ) -> Result<TResp> {
-        let resp = self.http.post(format!("{}{}", self.base, path))
-            .bearer_auth(access).json(body).send().await?;
+        let resp = self
+            .http
+            .post(format!("{}{}", self.base, path))
+            .bearer_auth(access)
+            .json(body)
+            .send()
+            .await?;
         if !resp.status().is_success() {
             return Err(AppError::Network(format!("{} -> {}", path, resp.status())));
         }
@@ -93,7 +138,12 @@ impl ApiClient {
     }
 
     /// Raw PUT of ciphertext to a presigned S3 URL (no auth header — the URL is the auth).
-    pub async fn put_blob(&self, url: &str, headers: &std::collections::HashMap<String, String>, body: Vec<u8>) -> Result<()> {
+    pub async fn put_blob(
+        &self,
+        url: &str,
+        headers: &std::collections::HashMap<String, String>,
+        body: Vec<u8>,
+    ) -> Result<()> {
         let mut req = self.http.put(url).body(body);
         for (k, v) in headers {
             req = req.header(k, v);

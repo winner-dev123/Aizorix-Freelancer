@@ -41,7 +41,10 @@ impl AppState {
             store: Arc::new(Mutex::new(store)),
             device: Arc::new(device),
             activity,
-            auth: Mutex::new(Auth { access_token: None, user_id: None }),
+            auth: Mutex::new(Auth {
+                access_token: None,
+                user_id: None,
+            }),
             session: Mutex::new(None),
         }
     }
