@@ -38,33 +38,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.0
-
+      # The web app uses npm (package-lock.json) — not pnpm.
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-          cache-dependency-path: web/pnpm-lock.yaml
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Lint
-        run: pnpm lint
+        run: npm run lint
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: npm run typecheck
 
       - name: Test
         # Don't fail the pipeline before a test runner exists; once a `test`
         # script is added it runs for real. `--if-present` makes this safe.
-        run: pnpm run --if-present test
+        run: npm run test --if-present
 
       - name: Build
-        run: pnpm build
+        run: npm run build
 
       - name: Upload Next build output
         uses: actions/upload-artifact@v4
