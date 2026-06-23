@@ -95,6 +95,9 @@ async fn process_screenshot(
     // The enrolled device id (persisted at login). Bound here so the &str borrow in SlotReq
     // outlives the request build below.
     let device_id = device_id(state).await;
+    // Unwrap the at-rest-sealed DEK (it's stored wrapped under the keychain key); the server then
+    // KMS-wraps this plaintext value. Bound here so the &str borrow in SlotReq outlives the build.
+    let client_dek = crate::crypto::unseal_dek_b64(&ss.client_dek_b64)?;
 
     // Step 1: obtain a presigned slot if we don't have one.
     let (server_id, upload_url, headers) = if upload_state == "queued" {
@@ -109,7 +112,7 @@ async fn process_screenshot(
                     slice_id: &ss.slice_id,
                     device_id: &device_id,
                     captured_at: &ss.captured_at,
-                    client_dek: &ss.client_dek_b64,
+                    client_dek: &client_dek,
                 },
             )
             .await?;
@@ -139,7 +142,7 @@ async fn process_screenshot(
                     slice_id: &ss.slice_id,
                     device_id: &device_id,
                     captured_at: &ss.captured_at,
-                    client_dek: &ss.client_dek_b64,
+                    client_dek: &client_dek,
                 },
             )
             .await?;

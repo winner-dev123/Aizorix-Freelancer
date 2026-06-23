@@ -111,7 +111,10 @@ async fn capture_and_enqueue(
         // touch disk. The server KMS-wraps this DEK when the slot is requested at sync time.
         let mut dek = vec![0u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut dek);
-        let dek_b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &dek);
+        // Seal the DEK under the device-local keychain key before it touches disk (#15): the queued
+        // row stores the WRAPPED dek, never plaintext, so a stolen SQLite file can't decrypt the
+        // ciphertext. The sync path unwraps it transiently when requesting the upload slot.
+        let sealed_dek = crypto::seal_dek(&dek)?;
 
         let aad = format!("{}|{}", session.contract_id, captured_at_str);
         let enc = crypto::encrypt_screenshot(dek, &cap.webp, aad.as_bytes())?;
@@ -150,14 +153,9 @@ async fn capture_and_enqueue(
             size_bytes: enc.ciphertext.len() as i64,
             activity_pct: 0, // server computes the authoritative %; this is a placeholder
             retries: 0,
-            // SECURITY GAP (audit wave 3, #15): the per-capture AES DEK is persisted here in
-            // plaintext base64 in local SQLite, next to the ciphertext blob — so read access to the
-            // app-data dir yields BOTH key and ciphertext until sync deletes the row, defeating the
-            // at-rest encryption. HARDENING (do in a Rust-toolchain env, with a queue-format
-            // migration + tests): wrap this value under a keychain-held at-rest key before storing
-            // and unwrap transiently in the sync path. Not done here to avoid shipping unverified
-            // crypto that could make queued DEKs unrecoverable.
-            client_dek_b64: dek_b64,
+            // At-rest-wrapped DEK (#15): base64(nonce || AES-256-GCM(dek)) under the keychain key,
+            // so the SQLite file alone yields neither the key nor a decryptable screenshot.
+            client_dek_b64: sealed_dek,
         };
         state.store.lock().await.enqueue_screenshot(&pending)?;
     }
