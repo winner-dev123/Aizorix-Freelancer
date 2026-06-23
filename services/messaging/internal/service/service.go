@@ -111,9 +111,10 @@ func (s *Service) ListMessages(ctx context.Context, conversationID, requesterUse
 	return s.store.ListMessages(ctx, conversationID, limit, before)
 }
 
-// ListConversations returns the conversations the user participates in.
-func (s *Service) ListConversations(ctx context.Context, userID string) ([]store.Conversation, error) {
-	return s.store.ListConversations(ctx, userID)
+// ListConversations returns the conversations the user participates in, bounded by
+// limit/offset (clamped in the store).
+func (s *Service) ListConversations(ctx context.Context, userID string, limit, offset int) ([]store.Conversation, error) {
+	return s.store.ListConversations(ctx, userID, limit, offset)
 }
 
 // IsParticipant reports whether the user is a member of the conversation. Used by the

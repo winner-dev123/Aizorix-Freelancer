@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -191,7 +192,9 @@ func (a *API) listMine(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "UNAUTHORIZED", "missing identity")
 		return
 	}
-	ps, err := a.svc.ListProposalsForFreelancer(r.Context(), p.UserID)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	ps, err := a.svc.ListProposalsForFreelancer(r.Context(), p.UserID, limit, offset)
 	if err != nil {
 		mapError(w, err)
 		return

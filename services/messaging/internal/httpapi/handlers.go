@@ -65,7 +65,9 @@ func (a *API) createConversation(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) listConversations(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-Id")
-	list, err := a.svc.ListConversations(r.Context(), userID)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	list, err := a.svc.ListConversations(r.Context(), userID, limit, offset)
 	if err != nil {
 		a.mapError(w, err)
 		return

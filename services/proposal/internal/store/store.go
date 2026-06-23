@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aizorix/platform/pkg/page"
 )
 
 // ErrNotFound is returned when a row lookup yields pgx.ErrNoRows.
@@ -204,14 +206,18 @@ func (s *Store) ListForProject(ctx context.Context, projectID, status string) ([
 	return scanProposals(rows)
 }
 
-// ListForFreelancer lists every proposal authored by a freelancer.
-func (s *Store) ListForFreelancer(ctx context.Context, freelancerID string) ([]Proposal, error) {
+// ListForFreelancer lists proposals authored by a freelancer, newest first, bounded by
+// limit/offset (clamped via page.Clamp) so a prolific freelancer cannot trigger an
+// unbounded scan.
+func (s *Store) ListForFreelancer(ctx context.Context, freelancerID string, limit, offset int) ([]Proposal, error) {
+	limit, offset = page.Clamp(limit, offset)
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, project_id, freelancer_id, cover_letter, bid_amount_cents, currency,
 		       estimated_duration_days, status, connects_spent
 		FROM proposals
 		WHERE freelancer_id = $1
-		ORDER BY submitted_at DESC`, freelancerID)
+		ORDER BY submitted_at DESC
+		LIMIT $2 OFFSET $3`, freelancerID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

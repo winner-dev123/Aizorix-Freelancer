@@ -408,12 +408,13 @@ func (s *Service) ContractParties(ctx context.Context, contractID string) (clien
 	return c.ClientID, c.FreelancerID, c.Status, nil
 }
 
-// ListContractsForUser lists contracts where the user is the given party (client/freelancer).
-func (s *Service) ListContractsForUser(ctx context.Context, userID, role string) ([]store.Contract, error) {
+// ListContractsForUser lists contracts where the user is the given party
+// (client/freelancer), bounded by limit/offset (clamped in the store).
+func (s *Service) ListContractsForUser(ctx context.Context, userID, role string, limit, offset int) ([]store.Contract, error) {
 	if role != "freelancer" {
 		role = "client"
 	}
-	return s.store.ListForUser(ctx, userID, role)
+	return s.store.ListForUser(ctx, userID, role, limit, offset)
 }
 
 // requireParty loads the contract and returns rbac.ErrForbidden unless userID is one of its

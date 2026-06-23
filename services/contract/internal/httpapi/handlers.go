@@ -8,6 +8,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -198,7 +199,9 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := r.URL.Query().Get("role")
-	cs, err := a.svc.ListContractsForUser(r.Context(), p.UserID, role)
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	cs, err := a.svc.ListContractsForUser(r.Context(), p.UserID, role, limit, offset)
 	if err != nil {
 		mapError(w, err)
 		return

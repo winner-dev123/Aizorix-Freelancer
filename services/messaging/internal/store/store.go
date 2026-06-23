@@ -10,6 +10,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aizorix/platform/pkg/page"
 )
 
 var (
@@ -131,13 +133,17 @@ func (s *Store) ListMessages(ctx context.Context, conversationID string, limit i
 }
 
 // ListConversations returns conversations the user participates in, most-recent first.
-func (s *Store) ListConversations(ctx context.Context, userID string) ([]Conversation, error) {
+// The result is bounded by limit/offset (clamped via page.Clamp) so a user with a long
+// conversation history cannot trigger an unbounded scan.
+func (s *Store) ListConversations(ctx context.Context, userID string, limit, offset int) ([]Conversation, error) {
+	limit, offset = page.Clamp(limit, offset)
 	rows, err := s.pool.Query(ctx, `
 		SELECT c.id, c.contract_id, c.project_id, c.subject, c.last_message_at, c.created_at
 		FROM conversations c
 		JOIN conversation_participants p ON p.conversation_id = c.id
 		WHERE p.user_id = $1
-		ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC`, userID)
+		ORDER BY c.last_message_at DESC NULLS LAST, c.created_at DESC
+		LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}

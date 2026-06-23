@@ -11,6 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/aizorix/platform/pkg/page"
 )
 
 // ErrNotFound is returned when a row lookup yields pgx.ErrNoRows.
@@ -345,18 +347,22 @@ func (s *Store) ListContractEvents(ctx context.Context, contractID string) ([]Co
 	return out, rows.Err()
 }
 
-// ListForUser lists contracts where the user is the client or freelancer per role.
-func (s *Store) ListForUser(ctx context.Context, userID, role string) ([]Contract, error) {
+// ListForUser lists contracts where the user is the client or freelancer per role,
+// newest first, bounded by limit/offset (clamped via page.Clamp) so a user with many
+// contracts cannot trigger an unbounded scan.
+func (s *Store) ListForUser(ctx context.Context, userID, role string, limit, offset int) ([]Contract, error) {
 	col := "client_id"
 	if role == "freelancer" {
 		col = "freelancer_id"
 	}
+	limit, offset = page.Clamp(limit, offset)
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, project_id, proposal_id, client_id, freelancer_id, budget_type, currency,
 		       total_amount_cents, hourly_rate_cents, weekly_hour_limit, status, platform_fee_bps,
 		       started_at, ended_at, end_reason
 		FROM contracts WHERE `+col+` = $1
-		ORDER BY created_at DESC`, userID)
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3`, userID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
