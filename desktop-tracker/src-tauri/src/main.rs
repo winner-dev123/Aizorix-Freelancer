@@ -1,6 +1,12 @@
 // Aizorix desktop tracker — Tauri 2 entrypoint.
 // Prevents a console window on Windows release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// WIP desktop app: some fields/constants/methods are scaffolding for not-yet-wired features, and
+// a couple of pedantic clippy style lints (a cfg-gated early return; doc-list indentation) are
+// relaxed crate-wide rather than contorting the code.
+#![allow(dead_code)]
+#![allow(clippy::needless_return)]
+#![allow(clippy::doc_overindented_list_items)]
 
 mod activity;
 mod api;
