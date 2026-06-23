@@ -1,0 +1,89 @@
+package main
+
+import "testing"
+
+// TestRoute pins the search index's routing rules — especially the security-relevant one: because
+// user.events is multiplexed, a CLIENT profile (or any non-freelancer/non-profile event) must
+// never be indexed into the freelancers index, even when is_searchable is true.
+func TestRoute(t *testing.T) {
+	cases := []struct {
+		name            string
+		eventType       string
+		payload         map[string]any
+		op, docType, id string
+	}{
+		{"project published → index project",
+			"project.published", map[string]any{"project_id": "p1"}, opIndex, "project", "p1"},
+		{"project closed → delete project (falls back to id)",
+			"project.closed", map[string]any{"id": "p2"}, opDelete, "project", "p2"},
+		{"searchable freelancer → index freelancer",
+			"profile.updated", map[string]any{"kind": "freelancer", "user_id": "u1", "is_searchable": true},
+			opIndex, "freelancer", "u1"},
+		{"unsearchable freelancer → delete from index",
+			"profile.updated", map[string]any{"kind": "freelancer", "user_id": "u1", "is_searchable": false},
+			opDelete, "freelancer", "u1"},
+		{"CLIENT profile is NEVER indexed as a freelancer (even if searchable)",
+			"profile.updated", map[string]any{"kind": "client", "user_id": "u2", "is_searchable": true},
+			"", "", ""},
+		{"freelancer kind is case-insensitive",
+			"profile.updated", map[string]any{"kind": "Freelancer", "user_id": "u3", "is_searchable": true},
+			opIndex, "freelancer", "u3"},
+		{"user.registered is ignored",
+			"user.registered", map[string]any{"id": "u4"}, "", "", ""},
+		{"session.created is ignored",
+			"session.created", map[string]any{"id": "u5"}, "", "", ""},
+		{"unknown event type is ignored",
+			"something.else", map[string]any{"id": "x"}, "", "", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := route(c.eventType, c.payload)
+			if a.op != c.op || a.docType != c.docType || a.id != c.id {
+				t.Fatalf("route(%q) = {%q %q %q}, want {%q %q %q}",
+					c.eventType, a.op, a.docType, a.id, c.op, c.docType, c.id)
+			}
+		})
+	}
+}
+
+// TestResolveEventType covers the topic/shape inference used when the bus header is absent.
+func TestResolveEventType(t *testing.T) {
+	cases := []struct {
+		topic   string
+		payload map[string]any
+		want    string
+	}{
+		{"project.events", map[string]any{}, "project.published"},
+		{"project.events", map[string]any{"closed_at": "2026-01-01"}, "project.closed"},
+		{"user.events", map[string]any{}, "profile.updated"},
+		{"user.events", map[string]any{"kyc_status": "verified"}, "user.kyc_updated"},
+		{"user.events", map[string]any{"type": "session.created"}, "session.created"}, // explicit type wins
+		{"other.topic", map[string]any{}, "other.topic"},
+	}
+	for _, c := range cases {
+		if got := resolveEventType(c.topic, c.payload); got != c.want {
+			t.Errorf("resolveEventType(%q, %v) = %q, want %q", c.topic, c.payload, got, c.want)
+		}
+	}
+}
+
+// TestBoolField covers the tolerant truthiness used for is_searchable across wire encodings.
+func TestBoolField(t *testing.T) {
+	cases := []struct {
+		v    any
+		want bool
+	}{
+		{true, true}, {false, false},
+		{"true", true}, {"1", true}, {"false", false}, {"", false},
+		{float64(1), true}, {float64(0), false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		if got := boolField(map[string]any{"k": c.v}, "k"); got != c.want {
+			t.Errorf("boolField(%#v) = %v, want %v", c.v, got, c.want)
+		}
+	}
+	if boolField(map[string]any{}, "missing") {
+		t.Error("missing key must be false")
+	}
+}

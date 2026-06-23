@@ -88,29 +88,52 @@ func indexEvent(ctx context.Context, svc *service.Service, m kafka.Message) erro
 		eventType = resolveEventType(m.Topic, payload)
 	}
 
+	switch a := route(eventType, payload); a.op {
+	case opIndex:
+		return svc.Index(ctx, a.docType, a.id, payload)
+	case opDelete:
+		return svc.Delete(ctx, a.docType, a.id)
+	default:
+		return nil // user.registered, session.created, client profiles, unknown — all ignored
+	}
+}
+
+const (
+	opIndex  = "index"
+	opDelete = "delete"
+)
+
+// indexAction is the routing decision for one event — what to do to which index document — kept
+// separate from the engine call so the rules below are unit-testable.
+type indexAction struct {
+	op      string // opIndex, opDelete, or "" (ignore)
+	docType string
+	id      string
+}
+
+// route maps an event type + payload to an index mutation, independent of the search engine. The
+// security-relevant invariants live here: user.events is multiplexed, so the user service emits
+// profile.updated for BOTH freelancer (kind=freelancer) and client (kind=client) profiles and the
+// auth service emits user.registered/session.created on the same topic. Only a freelancer-kind
+// profile may enter the freelancers index, and only while searchable (an unsearchable one is
+// removed); client profiles and non-profile user events must NEVER be indexed as freelancers.
+func route(eventType string, payload map[string]any) indexAction {
 	switch eventType {
 	case "project.published":
-		return svc.Index(ctx, "project", stringField(payload, "project_id", "id"), payload)
+		return indexAction{opIndex, "project", stringField(payload, "project_id", "id")}
 	case "project.closed":
-		return svc.Delete(ctx, "project", stringField(payload, "project_id", "id"))
+		return indexAction{opDelete, "project", stringField(payload, "project_id", "id")}
 	case "profile.updated":
-		// user.events is multiplexed: the user service emits profile.updated for BOTH
-		// freelancer (payload has kind=freelancer + is_searchable) and client (kind=client)
-		// profiles, and the auth service emits user.registered/session.created on the same
-		// topic. Only freelancer profiles belong in the freelancers index, and only while
-		// searchable — so a non-freelancer kind is a no-op and an unsearchable freelancer is
-		// removed from the index rather than indexed.
 		if !strings.EqualFold(stringField(payload, "kind"), "freelancer") {
-			return nil
+			return indexAction{} // client (or any non-freelancer) profile: ignore
 		}
 		userID := stringField(payload, "user_id", "id")
 		if boolField(payload, "is_searchable") {
-			return svc.Index(ctx, "freelancer", userID, payload)
+			return indexAction{opIndex, "freelancer", userID}
 		}
-		return svc.Delete(ctx, "freelancer", userID)
+		return indexAction{opDelete, "freelancer", userID}
 	default:
-		// user.registered, session.created, client profiles, and anything else are ignored.
-		return nil
+		return indexAction{}
 	}
 }
 
