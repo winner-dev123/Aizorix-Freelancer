@@ -1,10 +1,15 @@
 # Terraform CI/CD for infra/terraform.
 #
-#   PR   -> fmt check, init, validate, plan (plan posted as a PR comment)
-#   main -> apply, gated by the `production-infra` environment (required reviewers)
+#   PR / push to main -> fmt check, validate, plan (offline; a real plan only when AWS is configured)
+#   main push w/ AWS  -> apply, gated by the `production-infra` environment (required reviewers)
 #
-# AWS auth is OIDC -> IAM role. State lives in the S3 backend configured in versions.tf;
+# AWS auth is OIDC -> IAM role. State lives in the S3 backend configured in versions.tf; the
 # concrete bucket/key/table are passed via -backend-config secrets.
+#
+# NOTE on GitHub Environments/Deployments: the fmt/validate/plan job is plain CI and deliberately
+# has NO `environment:` — otherwise GitHub records every CI run (including failures) as a
+# "deployment to staging-infra", which is misleading. Only a genuine `apply` targets an
+# environment, so the Deployments tab reflects real infra changes, not CI.
 
 name: terraform
 
@@ -38,7 +43,10 @@ jobs:
   plan:
     name: fmt • validate • plan
     runs-on: ubuntu-latest
-    environment: staging-infra
+    # No `environment:` — this job is offline CI (fmt/validate, plus a read-only plan when AWS is
+    # configured). It must not create a deployment record; the apply job below owns that.
+    outputs:
+      has_aws: ${{ steps.has-aws.outputs.has_aws }}
     env:
       # Terraform state lives in S3 + needs AWS OIDC. fmt/validate run offline regardless; the
       # AWS-backed init/plan only run when the role is configured, so this stays green pre-AWS.
@@ -48,6 +56,12 @@ jobs:
         working-directory: ${{ env.WORKDIR }}
     steps:
       - uses: actions/checkout@v4
+
+      # Surface AWS-secret presence as a job output so the apply job (whose `if` cannot read
+      # secrets directly) can gate on it.
+      - name: Detect AWS configuration
+        id: has-aws
+        run: echo "has_aws=${{ secrets.AWS_TERRAFORM_ROLE_ARN != '' }}" >> "$GITHUB_OUTPUT"
 
       - uses: hashicorp/setup-terraform@v3
         with:
@@ -100,11 +114,13 @@ jobs:
   apply:
     name: apply
     needs: [plan]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Only on a direct push to main AND only when AWS is actually configured. Gating the whole job
+    # (not just its steps) means a repo without AWS secrets never spins up — and never records a
+    # bogus "production-infra" deployment. The AWS-presence flag comes from the plan job's output
+    # because a job-level `if` cannot read `secrets` directly.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.plan.outputs.has_aws == 'true'
     runs-on: ubuntu-latest
     environment: production-infra # required reviewers + wait timer enforce the gate
-    env:
-      HAS_AWS: ${{ secrets.AWS_TERRAFORM_ROLE_ARN != '' }}
     defaults:
       run:
         working-directory: ${{ env.WORKDIR }}
@@ -112,26 +128,19 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
-        if: env.HAS_AWS == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_TERRAFORM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - uses: hashicorp/setup-terraform@v3
-        if: env.HAS_AWS == 'true'
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: terraform apply
-        if: env.HAS_AWS == 'true'
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
             -backend-config="key=production/terraform.tfstate" \
             -backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}"
           terraform apply -auto-approve -input=false
-
-      - name: No AWS configured — skipping apply
-        if: env.HAS_AWS != 'true'
-        run: echo "AWS_TERRAFORM_ROLE_ARN not set; skipping terraform apply (configure AWS OIDC + state secrets to enable)."
