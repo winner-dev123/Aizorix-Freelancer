@@ -33,8 +33,15 @@ func NewPostgres(t *testing.T) *pgxpool.Pool {
 		postgres.WithDatabase("aizorix_test"),
 		postgres.WithUsername("test"),
 		postgres.WithPassword("test"),
+		// The official postgres image opens the port, runs init, then RESTARTS the server — so a
+		// bare ForListeningPort can fire mid-restart and the first connection gets "connection reset
+		// by peer". Also wait for the readiness log line to appear TWICE (before + after the
+		// restart), the documented fix for that flake.
 		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("5432/tcp").WithStartupTimeout(60*time.Second),
+			wait.ForAll(
+				wait.ForListeningPort("5432/tcp"),
+				wait.ForLog("database system is ready to accept connections").WithOccurrence(2),
+			).WithStartupTimeout(60*time.Second),
 		),
 	)
 	if err != nil {
