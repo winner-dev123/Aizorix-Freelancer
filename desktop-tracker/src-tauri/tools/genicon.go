@@ -15,8 +15,10 @@ import (
 )
 
 func render(sz int) *image.RGBA {
-	brand := color.RGBA{R: 30, G: 58, B: 138, A: 255}  // deep indigo
-	accent := color.RGBA{R: 99, G: 102, B: 241, A: 255} // a diagonal accent band
+	// Alpha 254 (not 255): Tauri requires RGBA icons, but Go's png.Encode drops the alpha channel
+	// for a fully-opaque image (emitting RGB). A near-opaque pixel keeps it RGBA — imperceptible.
+	brand := color.RGBA{R: 30, G: 58, B: 138, A: 254}  // deep indigo
+	accent := color.RGBA{R: 99, G: 102, B: 241, A: 254} // a diagonal accent band
 	img := image.NewRGBA(image.Rect(0, 0, sz, sz))
 	for y := 0; y < sz; y++ {
 		for x := 0; x < sz; x++ {

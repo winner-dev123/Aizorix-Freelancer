@@ -3,8 +3,7 @@
 //! backend's duplicate/static-screen detection. The raw RGBA never leaves this function —
 //! the caller immediately encrypts the returned WebP bytes.
 
-use crate::config::WEBP_QUALITY;
-use crate::error::{AppError, Result};
+use crate::error::Result;
 
 pub struct Capture {
     pub webp: Vec<u8>,
