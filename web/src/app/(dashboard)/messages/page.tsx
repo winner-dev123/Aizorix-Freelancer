@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { MessageThread } from '@/components/features/MessageThread';
 import { Avatar } from '@/components/ui/Avatar';
-import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Spinner } from '@/components/ui/Skeleton';
 import { useAuth } from '@/hooks/useAuth';
@@ -34,7 +33,7 @@ export default function MessagesPage() {
           ) : threads && threads.length > 0 ? (
             <ul className="divide-y divide-slate-100 overflow-y-auto">
               {threads.map((t) => {
-                const other = t.participant_names.find((n) => n !== user?.display_name);
+                const title = t.subject ?? 'Conversation';
                 return (
                   <li key={t.id}>
                     <button
@@ -44,23 +43,20 @@ export default function MessagesPage() {
                         active === t.id && 'bg-brand-50',
                       )}
                     >
-                      <Avatar name={other ?? 'Conversation'} size={36} />
+                      <Avatar name={title} size={36} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between">
-                          <p className="truncate font-medium text-slate-900">
-                            {other ?? 'Conversation'}
-                          </p>
-                          {t.last_message && (
+                          <p className="truncate font-medium text-slate-900">{title}</p>
+                          {t.last_message_at && (
                             <span className="shrink-0 text-[10px] text-muted">
-                              {formatRelative(t.last_message.sent_at)}
+                              {formatRelative(t.last_message_at)}
                             </span>
                           )}
                         </div>
                         <p className="truncate text-xs text-muted">
-                          {t.last_message?.body ?? 'No messages yet'}
+                          {t.last_message_at ? 'Tap to view conversation' : 'No messages yet'}
                         </p>
                       </div>
-                      {t.unread_count > 0 && <Badge tone="brand">{t.unread_count}</Badge>}
                     </button>
                   </li>
                 );

@@ -11,7 +11,7 @@ import { useContracts } from '@/hooks/useContract';
 import { useMyProposals } from '@/hooks/useProjects';
 import { paymentsApi } from '@/lib/api/payments';
 import { queryKeys } from '@/hooks/queryKeys';
-import { formatMoney, formatRelative } from '@/lib/format';
+import { formatMoney } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
 import type { ProposalStatus } from '@/lib/types';
 
@@ -24,7 +24,7 @@ const proposalTone: Record<ProposalStatus, 'neutral' | 'success' | 'warning' | '
 };
 
 export default function FreelancerDashboardPage() {
-  const contracts = useContracts();
+  const contracts = useContracts('freelancer');
   const proposals = useMyProposals();
   const earnings = useQuery({
     queryKey: queryKeys.payments.summary(),
@@ -32,7 +32,7 @@ export default function FreelancerDashboardPage() {
   });
 
   const activeContracts =
-    contracts.data?.items.filter((c) => c.status === 'active').length ?? 0;
+    contracts.data?.filter((c) => c.status === 'active').length ?? 0;
 
   return (
     <div className="space-y-8">
@@ -76,18 +76,16 @@ export default function FreelancerDashboardPage() {
             <Table>
               <THead>
                 <TR>
-                  <TH>Submitted</TH>
                   <TH>Bid</TH>
                   <TH>Status</TH>
                   <TH>Connects</TH>
                 </TR>
               </THead>
               <TBody>
-                {proposals.data?.items.length ? (
-                  proposals.data.items.map((p) => (
+                {proposals.data?.length ? (
+                  proposals.data.map((p) => (
                     <TR key={p.id}>
-                      <TD>{formatRelative(p.created_at)}</TD>
-                      <TD>{formatMoney(p.bid_rate_cents)}</TD>
+                      <TD>{formatMoney(p.bid_amount_cents, p.currency)}</TD>
                       <TD>
                         <Badge tone={proposalTone[p.status]}>{p.status}</Badge>
                       </TD>
@@ -95,7 +93,7 @@ export default function FreelancerDashboardPage() {
                     </TR>
                   ))
                 ) : (
-                  <EmptyRow colSpan={4}>
+                  <EmptyRow colSpan={3}>
                     No proposals yet.{' '}
                     <Link href="/marketplace" className="text-brand-600 hover:underline">
                       Find work
@@ -113,8 +111,8 @@ export default function FreelancerDashboardPage() {
           <CardTitle>Active contracts</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {contracts.data?.items
-            .filter((c) => c.status === 'active')
+          {contracts.data
+            ?.filter((c) => c.status === 'active')
             .map((c) => (
               <Link
                 key={c.id}
@@ -123,13 +121,19 @@ export default function FreelancerDashboardPage() {
               >
                 <div>
                   <p className="font-medium text-slate-900">Contract {c.id.slice(0, 8)}</p>
-                  <p className="text-xs text-muted capitalize">{c.type} · {c.status}</p>
+                  <p className="text-xs text-muted capitalize">{c.budget_type} · {c.status}</p>
                 </div>
-                <Badge tone="info">{formatMoney(c.escrow_balance_cents, c.currency)} in escrow</Badge>
+                <Badge tone="info">
+                  {c.total_amount_cents != null
+                    ? formatMoney(c.total_amount_cents, c.currency)
+                    : c.hourly_rate_cents != null
+                      ? `${formatMoney(c.hourly_rate_cents, c.currency)}/hr`
+                      : c.status}
+                </Badge>
               </Link>
             )) ?? null}
           {!contracts.isLoading &&
-            !contracts.data?.items.some((c) => c.status === 'active') && (
+            !contracts.data?.some((c) => c.status === 'active') && (
               <p className="text-sm text-muted">No active contracts.</p>
             )}
         </CardContent>

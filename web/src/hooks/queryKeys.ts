@@ -26,9 +26,10 @@ export const queryKeys = {
 
   contracts: {
     all: () => ['contracts'] as const,
-    list: () => ['contracts', 'list'] as const,
+    list: (role?: string) => ['contracts', 'list', role ?? 'all'] as const,
     detail: (id: UUID) => ['contracts', 'detail', id] as const,
     timeline: (id: UUID) => ['contracts', 'detail', id, 'timeline'] as const,
+    escrow: (id: UUID) => ['contracts', 'detail', id, 'escrow'] as const,
   },
 
   timesheets: {

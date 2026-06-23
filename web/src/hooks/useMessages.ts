@@ -37,12 +37,11 @@ export function useSendMessage(threadId: UUID) {
       const previous = qc.getQueryData<Message[]>(key);
       const optimistic: Message = {
         id: `optimistic-${crypto.randomUUID()}`,
-        thread_id: threadId,
+        conversation_id: threadId,
         sender_id: 'me',
-        sender_name: 'You',
         body,
-        sent_at: new Date().toISOString(),
-        read_at: null,
+        kind: 'text',
+        created_at: new Date().toISOString(),
       };
       qc.setQueryData<Message[]>(key, [...(previous ?? []), optimistic]);
       return { previous };

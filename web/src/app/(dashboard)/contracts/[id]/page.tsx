@@ -9,13 +9,18 @@ import { Badge, type BadgeTone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useApproveMilestone, useContract, useContractTimeline } from '@/hooks/useContract';
+import {
+  useApproveMilestone,
+  useContract,
+  useContractEscrow,
+  useContractTimeline,
+} from '@/hooks/useContract';
 import { useAuth } from '@/hooks/useAuth';
 import { formatDate, formatMoney } from '@/lib/format';
 import type { ContractStatus, MilestoneStatus } from '@/lib/types';
 
 const statusTone: Record<ContractStatus, BadgeTone> = {
-  pending: 'neutral',
+  pending_funding: 'neutral',
   active: 'success',
   paused: 'warning',
   completed: 'info',
@@ -37,6 +42,7 @@ export default function ContractDetailPage() {
   const { user } = useAuth();
   const contract = useContract(id);
   const timeline = useContractTimeline(id);
+  const escrow = useContractEscrow(id);
   const approve = useApproveMilestone(id);
 
   const isClient = user?.role === 'client';
@@ -51,18 +57,19 @@ export default function ContractDetailPage() {
   }
 
   const c = contract.data;
+  const milestones = c.milestones ?? [];
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         title={`Contract ${c.id.slice(0, 8)}`}
-        description={`${c.type} · ${c.currency}`}
+        description={`${c.budget_type} · ${c.currency}`}
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={statusTone[c.status]} dot>
               {c.status}
             </Badge>
-            {c.type === 'hourly' && (
+            {c.budget_type === 'hourly' && (
               <Link href={`/contracts/${c.id}/time`}>
                 <Button variant="outline">Timesheet &amp; screenshots</Button>
               </Link>
@@ -78,14 +85,14 @@ export default function ContractDetailPage() {
               <CardTitle>Milestones</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {c.milestones.length === 0 && (
+              {milestones.length === 0 && (
                 <p className="text-sm text-muted">
-                  {c.type === 'hourly'
+                  {c.budget_type === 'hourly'
                     ? 'Hourly contract — billed weekly from verified time.'
                     : 'No milestones defined.'}
                 </p>
               )}
-              {c.milestones.map((m) => (
+              {milestones.map((m) => (
                 <div
                   key={m.seq}
                   className="flex items-center justify-between rounded-lg border border-slate-200 p-4"
@@ -126,7 +133,7 @@ export default function ContractDetailPage() {
               {timeline.isLoading ? (
                 <Skeleton className="h-40 w-full" />
               ) : (
-                <ContractTimeline events={timeline.data ?? []} currency={c.currency} />
+                <ContractTimeline events={timeline.data ?? []} />
               )}
             </CardContent>
           </Card>
@@ -137,10 +144,14 @@ export default function ContractDetailPage() {
             <div>
               <p className="text-sm text-muted">Escrow balance</p>
               <p className="text-xl font-bold text-slate-900">
-                {formatMoney(c.escrow_balance_cents, c.currency)}
+                {escrow.data
+                  ? formatMoney(escrow.data.held_cents, c.currency)
+                  : escrow.isLoading
+                    ? '…'
+                    : '—'}
               </p>
             </div>
-            {c.type === 'hourly' && c.hourly_rate_cents && (
+            {c.budget_type === 'hourly' && c.hourly_rate_cents != null && (
               <div>
                 <p className="text-sm text-muted">Hourly rate</p>
                 <p className="font-medium text-slate-900">
@@ -148,16 +159,16 @@ export default function ContractDetailPage() {
                 </p>
               </div>
             )}
-            {c.weekly_limit_hours && (
+            {c.weekly_hour_limit != null && (
               <div>
                 <p className="text-sm text-muted">Weekly limit</p>
-                <p className="font-medium text-slate-900">{c.weekly_limit_hours} h</p>
+                <p className="font-medium text-slate-900">{c.weekly_hour_limit} h</p>
               </div>
             )}
             <div>
               <p className="text-sm text-muted">Started</p>
               <p className="font-medium text-slate-900">
-                {c.activated_at ? formatDate(c.activated_at) : 'Not yet active'}
+                {c.started_at ? formatDate(c.started_at) : 'Not yet active'}
               </p>
             </div>
           </CardContent>
