@@ -93,7 +93,7 @@ jobs:
       - name: Compute image tags
         id: meta
         if: env.HAS_AWS == 'true'
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ steps.ecr.outputs.registry }}/aizorix/${{ matrix.service }}
           tags: |
