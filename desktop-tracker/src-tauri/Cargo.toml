@@ -28,7 +28,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # Crypto: per-capture AES-256-GCM, Ed25519 device signing, hashing, secret storage
 aes-gcm = "0.10"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
-sha2 = "0.10"
+sha2 = "0.11"
 rand = "0.8"
 keyring = "2.3"            # OS keychain for the device signing key + refresh token
 base64 = "0.22"
